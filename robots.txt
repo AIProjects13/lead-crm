@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://yakbal.pixantech.net/sitemap.xml

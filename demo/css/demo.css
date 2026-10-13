@@ -1,0 +1,15 @@
+/* Yakbal · demo: barra superior "DEMO" y modo captura */
+.demo-bar{display:flex;align-items:center;gap:10px;padding:8px 16px;background:#1f6b53;color:#fff;font:600 13px/1.2 'Plus Jakarta Sans',system-ui,sans-serif;position:relative;z-index:50}
+.demo-tag{background:#fff;color:#1f6b53;font-weight:800;font-size:11px;letter-spacing:.12em;padding:3px 8px;border-radius:999px}
+.demo-sp{flex:1}
+.demo-lang{display:inline-flex;background:rgba(255,255,255,.15);border-radius:999px;padding:2px}
+.demo-lang button{all:unset;cursor:pointer;padding:4px 10px;border-radius:999px;font-weight:800;font-size:12px}
+.demo-lang button.on{background:#fff;color:#1f6b53}
+.demo-cta{color:#1f6b53;background:#fff;text-decoration:none;font-weight:800;padding:6px 14px;border-radius:999px;white-space:nowrap}
+.demo-cta:hover{filter:brightness(.95)}
+@media (max-width:560px){.demo-txt{display:none}}
+/* Modo captura (?shot=1): sin barra, sin animaciones, sin barras de desplazamiento */
+body.shot .demo-bar{display:none}
+body.shot *,body.shot *::before,body.shot *::after{animation:none!important;transition:none!important;caret-color:transparent}
+body.shot ::-webkit-scrollbar{display:none}
+body.shot{scrollbar-width:none}
