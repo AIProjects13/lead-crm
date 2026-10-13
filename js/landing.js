@@ -32,14 +32,14 @@
     'f5.tag': 'Dashboard', 'f5.title': 'Decide with numbers, not hunches.',
     'f5.text': 'New customers, sales, payments and appointments by week, by month and by day of the week, compared with your average. What is urgent is right there when you log in.',
     'f5.b1': 'Overdue, due soon, to work on and on track', 'f5.b2': 'Sales funnel by stage', 'f5.b3': 'Today’s agenda when you open it',
-    'f6.tag': 'Team & security', 'f6.title': 'Your team, with permissions. Your data, safeguarded.',
-    'f6.text': 'Give your salespeople access and decide who manages. Every action is logged with its author and time, and you can revoke access instantly. Every edition includes one user; each additional user has an extra cost.',
+    'f6.tag': 'Security', 'f6.title': 'Your data, safeguarded.',
+    'f6.text': 'Everyone on your team signs in with their own user, from a computer or a phone. Sessions close themselves when idle and every action is logged with its author and time.',
     'f6.b1': 'Sign in with username and password', 'f6.b2': 'Sessions close after 15 idle minutes', 'f6.b3': 'Full activity log for the administrator',
     'alt.flow': 'Workflow board', 'alt.cal': 'Weekly hourly calendar', 'alt.lead': 'Full customer record', 'alt.billing': 'Billing: pending and paid',
-    'alt.receipt': 'Receipt on a phone', 'alt.dash': 'Dashboard with indicators and charts', 'alt.team': 'Team activity log',
-    'gal.kicker': 'Gallery', 'gal.title': 'Take a look inside.', 'gal.prev': 'Previous', 'gal.next': 'Next', 'gal.aria': 'Yakbal screenshots',
+    'alt.receipt': 'Receipt on a phone', 'alt.dash': 'Dashboard with indicators and charts', 'alt.secure': 'Dashboard on a computer', 'alt.securePhone': 'Dashboard on a phone',
+    'gal.kicker': 'Gallery', 'gal.title': 'Take a look inside.', 'gal.prev': 'Previous', 'gal.next': 'Next', 'gal.aria': 'Yakbal screenshots', 'gal.hint': 'Swipe the images or use the arrows below.', 'gal.go': 'Go to image',
     'gal.c1': 'Dashboard · dark theme', 'gal.c2': 'Workflow', 'gal.c3': 'On your phone', 'gal.c4': 'Weekly calendar', 'gal.c5': 'Customer record',
-    'gal.c6': 'Receipt ready to share', 'gal.c7': 'Billing & collections', 'gal.c8': 'Dashboard · light theme', 'gal.c9': 'Activity log',
+    'gal.c6': 'Receipt ready to share', 'gal.c7': 'Billing & collections', 'gal.c8': 'Dashboard · light theme',
     'demo.kicker': 'Test drive', 'demo.title': 'Try it now. No sign-up.',
     'demo.sub': 'A fictional company with sample customers, appointments and receipts. Move cards, schedule appointments, issue a receipt: nothing you do is saved.',
     'demo.iframe': 'Yakbal interactive demo', 'demo.open': 'Open the demo full screen',
@@ -61,9 +61,9 @@
     'st.s3': 'Your team uses it', 'st.s3t': 'We train your team and stay with you until everything works.',
     'faq.kicker': 'FAQ', 'faq.title': 'What everyone asks.',
     'q1': 'Do I need to install anything?', 'a1': 'No. Yakbal runs in the browser on your computer and your phone. You just sign in with your username and password.',
-    'q2': 'Is my data safe?', 'a2': 'Everyone signs in with their own user, sessions close themselves when idle, only the administrator decides who has access and every action is logged.',
+    'q2': 'Is my data safe?', 'a2': 'Everyone signs in with their own user, sessions close themselves when idle, only the people you authorize get in and every action is logged.',
     'q3': 'Does it work on my phone?', 'a3': 'Yes, fully: calendar, records, workflow and receipts. Receipts are shared by WhatsApp or email right from the phone.',
-    'q4': 'Can my team use it?', 'a4': 'Yes. Give your salespeople access, choose who manages and revoke access instantly. Every edition includes one user; each additional user has an extra cost.',
+    'q4': 'Can my team use it?', 'a4': 'Yes. Every edition includes one user and you can add as many as you need; each additional user has an extra cost. Tell us who should get in and we set up their access.',
     'q5': 'Which currency and language?', 'a5': 'Your country’s currency and tax. The interface is available in Spanish and English.',
     'q6': 'Does it fit my industry?', 'a6': 'Yes. Stages, record questions and appointment types are adjusted to how your business sells.',
     'q7': 'How much does it cost?', 'a7': 'It depends on the edition and what needs tailoring. Message us and in the first conversation we give you a price range, free of charge.',
@@ -114,6 +114,7 @@
     const u = new URL(location.href);
     if (lang === 'en') u.searchParams.set('lang', 'en'); else u.searchParams.delete('lang');
     history.replaceState(null, '', u.toString());
+    if (window.YK_galMark) window.YK_galMark();
   }
 
   let lang = new URLSearchParams(location.search).get('lang');
@@ -130,12 +131,40 @@
   const hdr = document.querySelector('.hdr');
   addEventListener('scroll', () => hdr.classList.toggle('scrolled', scrollY > 8), { passive: true });
 
-  // ── Galería: flechas
+  // ── Galería: la imagen del centro es la activa; flechas, puntos y contador la siguen
   const track = document.getElementById('galTrack');
-  document.querySelectorAll('[data-gal]').forEach(b => b.addEventListener('click', () => {
-    const fig = track.querySelector('figure'); const step = fig ? fig.getBoundingClientRect().width + 20 : 600;
-    track.scrollBy({ left: Number(b.dataset.gal) * step, behavior: 'smooth' });
-  }));
+  const figs = [...track.querySelectorAll('figure')];
+  const dots = document.getElementById('galDots');
+  let cur = 0;
+  figs.forEach((f, i) => {
+    const d = document.createElement('button'); d.type = 'button'; d.className = 'dot';
+    d.addEventListener('click', () => go(i)); dots.appendChild(d);
+    f.addEventListener('click', () => { if (i !== cur) go(i); });
+  });
+  document.getElementById('galTot').textContent = figs.length;
+  function go(i) {
+    i = Math.max(0, Math.min(figs.length - 1, i));
+    const f = figs[i];
+    track.scrollTo({ left: f.offsetLeft - (track.clientWidth - f.offsetWidth) / 2, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }
+  function mark() {
+    const mid = track.scrollLeft + track.clientWidth / 2;
+    let best = 0, dist = Infinity;
+    figs.forEach((f, i) => { const d = Math.abs(f.offsetLeft + f.offsetWidth / 2 - mid); if (d < dist) { dist = d; best = i; } });
+    cur = best;
+    figs.forEach((f, i) => f.classList.toggle('on', i === cur));
+    [...dots.children].forEach((d, i) => { d.classList.toggle('on', i === cur); d.setAttribute('aria-current', i === cur ? 'true' : 'false'); d.setAttribute('aria-label', (document.documentElement.lang === 'en' ? 'Go to image ' : 'Ir a la imagen ') + (i + 1)); });
+    document.getElementById('galNum').textContent = cur + 1;
+    document.querySelector('[data-gal="-1"]').disabled = cur === 0;
+    document.querySelector('[data-gal="1"]').disabled = cur === figs.length - 1;
+  }
+  let raf = 0;
+  track.addEventListener('scroll', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(mark); }, { passive: true });
+  addEventListener('resize', mark);
+  document.querySelectorAll('[data-gal]').forEach(b => b.addEventListener('click', () => go(cur + Number(b.dataset.gal))));
+  track.addEventListener('keydown', e => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); go(cur + (e.key === 'ArrowRight' ? 1 : -1)); } });
+  window.YK_galMark = mark;
+  mark();
 
   // ── La demo solo se carga cuando llega a la pantalla (la página abre rápido)
   const frame = document.getElementById('demoFrame');

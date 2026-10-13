@@ -91,8 +91,6 @@ function applyMe(yo){
   $('meAvatar').textContent=ini(yo.nombre||yo.email||'?');
   $('meAvatar').title=(yo.nombre||'')+' · '+(admin?'Administrador':'Usuario');
   $('greet').textContent=`Hola, ${String(yo.nombre||'').split(/\s+/)[0]||''}! 👋`;
-  const v=document.querySelector('.view.active');
-  if(!admin&&v&&(v.id==='v-usuarios'||v.id==='v-registro'))ACTIONS.nav(document.querySelector('.nav[data-view=dashboard]'));
 }
 
 // ───── animación ─────
@@ -106,7 +104,7 @@ function enter(...ids){
     el.classList.remove('enter');void el.offsetWidth;el.classList.add('enter');
     clearTimeout(el._e);el._e=setTimeout(()=>el.classList.remove('enter'),1500);});
 }
-const VIEW_PARTS={dashboard:['kpis','progChart','bento2','todayList','funnel','tbody'],pipeline:['stageCards','kanban'],facturacion:['payCards','kanbanPago'],calendario:['cal'],usuarios:['usersBody'],registro:['auditBody']};
+const VIEW_PARTS={dashboard:['kpis','progChart','bento2','todayList','funnel','tbody'],pipeline:['stageCards','kanban'],facturacion:['payCards','kanbanPago'],calendario:['cal']};
 function countTo(el,to){
   const from=+el.textContent||0;cancelAnimationFrame(el._r);
   if(from===to||REDUCED||document.hidden){el.textContent=to;return} // en segundo plano no hay animación: valor directo
@@ -613,8 +611,7 @@ const ACTIONS={
     if(isMobile())setNav(false);
     if(v==='dashboard')renderProgress();
     if(v==='calendario')renderCal();
-    if(v==='usuarios'||v==='registro')loadAdmin().then(()=>enter(...VIEW_PARTS[v])).catch(()=>{});
-    else enter(...VIEW_PARTS[v]);
+    enter(...VIEW_PARTS[v]);
   },
   'nav-cal'(){calView='dia';calDate=new Date(T);ACTIONS.nav(document.querySelector('.nav[data-view=calendario]'))},
   filtro(el){
@@ -668,30 +665,6 @@ const ACTIONS={
   logout(){lock('Has cerrado sesión.',true)},
   'prog-metric'(el){progMetric=el.dataset.v;segOn(el);renderProgress();enter('progChart')},
   'prog-period'(el){progPeriod=el.dataset.v;segOn(el);renderProgress();enter('progChart')},
-  'audit-refresh'(el){el.setAttribute('aria-busy','true');loadAdmin().finally(()=>el.removeAttribute('aria-busy'))},
-  async 'user-toggle'(el){
-    const u=ADMIN&&ADMIN.usuarios.find(x=>x.uid===el.dataset.id);if(!u)return;
-    const activar=u.activo!=='1';
-    if(!activar&&!confirm(`¿Quitar el acceso a ${u.nombre}?\n\nNo podrá entrar al CRM hasta que lo reactives.`))return;
-    el.setAttribute('aria-busy','true');
-    try{setAdmin(await api('updateUser',u.uid,{activo:activar}));toast(activar?u.nombre+' reactivado':'Acceso retirado a '+u.nombre)}
-    finally{el.removeAttribute('aria-busy')}
-  },
-  async 'user-role'(el){
-    const u=ADMIN&&ADMIN.usuarios.find(x=>x.uid===el.dataset.id);if(!u)return;
-    const rol=u.rol==='admin'?'usuario':'admin';
-    if(!confirm(`¿Cambiar a ${u.nombre} a ${rol==='admin'?'Administrador':'Usuario'}?`))return;
-    el.setAttribute('aria-busy','true');
-    try{setAdmin(await api('updateUser',u.uid,{rol}));toast(u.nombre+' ahora es '+(rol==='admin'?'administrador':'usuario'))}
-    finally{el.removeAttribute('aria-busy')}
-  },
-  async 'user-reset'(el){
-    const u=ADMIN&&ADMIN.usuarios.find(x=>x.uid===el.dataset.id);if(!u)return;
-    if(!confirm(`¿Enviar a ${u.email} un email para cambiar su contraseña?`))return;
-    el.setAttribute('aria-busy','true');
-    try{await api('sendPasswordReset',u.uid);toast('Email enviado a '+u.email);if($('v-registro').classList.contains('active'))loadAdmin()}
-    finally{el.removeAttribute('aria-busy')}
-  },
 };
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]');if(!el)return;
@@ -710,61 +683,6 @@ $('cfgForm').addEventListener('submit',async e=>{
 document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
   if($('ovRecibo').classList.contains('open'))closeRecibo();else if($('ovCita').classList.contains('open'))closeCita();else if($('ovLead').classList.contains('open'))closeLead();else if(isMobile()&&navOpen())setNav(false)});
 $('q').addEventListener('input',e=>{q=e.target.value.trim().toLowerCase();renderTable();renderKanban();renderPagos()});
-
-// ───── administración (usuarios y registro) ─────
-let ADMIN=null;
-async function loadAdmin(){setAdmin(await api('adminData'))}
-function setAdmin(a){ADMIN=a;renderUsers();renderAuditFilters();renderAudit()}
-function renderUsers(){
-  const us=(ADMIN&&ADMIN.usuarios||[]).slice().sort((a,b)=>(b.activo==='1')-(a.activo==='1')||(b.rol==='admin')-(a.rol==='admin')||a.nombre.localeCompare(b.nombre));
-  const me=DATA.yo&&DATA.yo.email;
-  $('usersCount').textContent=us.filter(u=>u.activo==='1').length+' activos de '+us.length;
-  $('usersBody').innerHTML=us.map(u=>{const on=u.activo==='1',self=u.email===me;return `
-    <tr style="--c:var(${on?'--aldia':'--cerrado'})">
-      <td><b>${esc(u.nombre)}</b>${u.principal?' <span class="role-badge admin">Principal</span>':''}${self?' <span class="role-badge">Tú</span>':''}</td>
-      <td>${esc(u.email)}</td>
-      <td><span class="role-badge ${u.rol==='admin'?'admin':''}">${u.rol==='admin'?'Administrador':'Usuario'}</span></td>
-      <td><span class="spill" style="--c:var(${!on?'--vencido':u.uid.startsWith('pendiente-')?'--porvencer':'--aldia'})"><i class="dot"></i>${!on?'Sin acceso':u.uid.startsWith('pendiente-')?'Pendiente de primer acceso':'Activo'}</span></td>
-      <td>${esc(u.ultimoAcceso)||'—'}</td>
-      <td>${u.principal||self?'<span class="muted-s">—</span>':`<div class="acts-row">
-        <button class="mini" data-act="user-role" data-id="${esc(u.uid)}">${u.rol==='admin'?'Hacer usuario':'Hacer admin'}</button>
-        <button class="mini" data-act="user-toggle" data-id="${esc(u.uid)}">${on?'Quitar acceso':'Reactivar'}</button>
-        ${on?`<button class="mini" data-act="user-reset" data-id="${esc(u.uid)}" title="Enviar email para cambiar la contraseña">✉ Contraseña</button>`:''}</div>`}</td></tr>`}).join('');
-}
-function renderAuditFilters(){
-  const a=ADMIN&&ADMIN.auditoria||[];
-  const fill=(id,vals,label)=>{const sel=$(id),cur=sel.value;
-    sel.innerHTML=`<option value="">${label}</option>`+[...new Set(vals)].sort().map(v=>`<option ${v===cur?'selected':''}>${esc(v)}</option>`).join('')};
-  fill('aUser',a.map(x=>x.email),'Todos los usuarios');
-  fill('aAccion',a.map(x=>x.accion),'Todas las acciones');
-}
-const ACC_COLOR={'Lead eliminado':'--vencido','Lead perdido':'--vencido','Cita cancelada':'--vencido','Usuario actualizado':'--porvencer','Usuario creado':'--porvencer',
-  'Email de contraseña enviado':'--porvencer','Lead creado':'--aldia','Lead facturado':'--aldia','Pago registrado':'--aldia','Pago pendiente':'--porvencer','Cita realizada':'--aldia','Cita agendada':'--trabajar','Etapa cambiada':'--trabajar','Inicio de sesión':'--cerrado'};
-function renderAudit(){
-  const a=ADMIN&&ADMIN.auditoria||[],s=$('aQ').value.trim().toLowerCase(),u=$('aUser').value,ac=$('aAccion').value;
-  const rows=a.filter(x=>(!u||x.email===u)&&(!ac||x.accion===ac)&&(!s||(x.detalle+' '+x.email).toLowerCase().includes(s)));
-  const shown=rows.slice(0,500);
-  $('auditCount').textContent=ADMIN?`${rows.length} de ${a.length} cargadas`+(ADMIN.totalAuditoria>a.length?` · ${ADMIN.totalAuditoria} en total (se muestran las más recientes)`:''):'';
-  $('auditBody').innerHTML=shown.map(x=>`<tr><td>${esc(x.fecha)}</td><td>${esc(x.email)}</td>
-    <td><span class="spill" style="--c:var(${ACC_COLOR[x.accion]||'--muted'})"><i class="dot"></i>${esc(x.accion)}</span></td>
-    <td>${x.leadId&&lead(x.leadId)?`<button type="button" class="linkish" style="text-align:left" data-act="lead" data-id="${esc(x.leadId)}" title="Abrir ficha">${esc(x.detalle)}</button>`:esc(x.detalle)}</td></tr>`).join('');
-  $('auditEmpty').innerHTML=shown.length?(rows.length>shown.length?`<p class="empty">Mostrando 500 de ${rows.length}. Usa los filtros para acotar.</p>`:''):'<p class="empty">Sin acciones que coincidan.</p>';
-}
-['aQ','aUser','aAccion'].forEach(id=>$(id).addEventListener('input',renderAudit));
-$('userForm').addEventListener('submit',async e=>{
-  e.preventDefault();
-  const data={nombre:$('uNombre').value.trim(),email:$('uEmail').value.trim(),rol:$('uRol').value,uid:$('uUid').value.trim()};
-  if(!data.nombre){toast('Escribe el nombre',true);$('uNombre').focus();return}
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)){toast('Escribe un email válido',true);$('uEmail').focus();return}
-  if(data.rol==='admin'&&!confirm(`${data.nombre} será ADMINISTRADOR: podrá ver el registro y gestionar usuarios. ¿Continuar?`))return;
-  $('uBtn').setAttribute('aria-busy','true');
-  try{
-    const r=await api('createUser',data);
-    setAdmin(r.admin);$('userForm').reset();
-    toast(r.nuevo?(r.enviado?`Usuario creado. ${data.email} recibirá un email para poner su contraseña`:'Usuario creado, pero no se pudo enviar el email: usa “✉ Contraseña”')
-      :`Acceso dado a ${data.email}: ya tenía cuenta, entra con su contraseña de siempre`);
-  }catch(err){}finally{$('uBtn').removeAttribute('aria-busy')}
-});
 
 // ───── arrastrar tarjetas (Flujo de trabajo y Facturación) ─────
 let dragId=null;
@@ -820,7 +738,7 @@ function applyTheme(t,save){
 
 // ───── arranque de la demo ─────
 // Parámetros (también los usan las capturas automáticas):
-//   ?lang=es|en  ?theme=dark|light  ?view=dashboard|pipeline|facturacion|calendario|usuarios|registro
+//   ?lang=es|en  ?theme=dark|light  ?view=dashboard|pipeline|facturacion|calendario
 //   ?cal=mes|semana|dia  ?open=lead|recibo  ?nav=wide  ?shot=1 (sin animaciones ni banner)
 const QS=new URLSearchParams(location.search);
 function resetDemo(){DemoBackend.init(LANG);setData(DemoBackend.iniciarSesion())}

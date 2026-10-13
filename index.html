@@ -147,11 +147,14 @@
     </article>
 
     <article class="feat rev reveal">
-      <div class="feat-img"><div class="laptop sm"><div class="screen"><img data-shot="team-dark" alt="Registro de acciones del equipo" data-i18n-alt="alt.team" loading="lazy" width="1600" height="1000"></div><div class="base"></div></div></div>
+      <div class="feat-img duo">
+        <div class="laptop sm"><div class="screen"><img data-shot="dash-dark" alt="Tablero en la computadora" data-i18n-alt="alt.secure" loading="lazy" width="1600" height="1000"></div><div class="base"></div></div>
+        <div class="phone sm"><div class="screen"><img data-shot="mobile-dash-dark" alt="Tablero en el celular" data-i18n-alt="alt.securePhone" loading="lazy" width="780" height="1688"></div></div>
+      </div>
       <div class="feat-txt">
-        <span class="tag" data-i18n="f6.tag">Equipo y seguridad</span>
-        <h3 data-i18n="f6.title">Tu equipo, con permisos. Tus datos, resguardados.</h3>
-        <p data-i18n="f6.text">Da acceso a tus vendedores y decide quién administra. Cada acción queda registrada con su autor y su hora, y puedes retirar un acceso al instante. Cada versión incluye un usuario; cada usuario adicional tiene un costo extra.</p>
+        <span class="tag" data-i18n="f6.tag">Seguridad</span>
+        <h3 data-i18n="f6.title">Tus datos, resguardados.</h3>
+        <p data-i18n="f6.text">Cada persona de tu equipo entra con su propio usuario, desde la computadora o el celular. La sesión se cierra sola si nadie la usa y cada acción queda registrada con su autor y su hora.</p>
         <ul class="ticks"><li data-i18n="f6.b1">Acceso con usuario y contraseña</li><li data-i18n="f6.b2">La sesión se cierra sola tras 15 minutos sin uso</li><li data-i18n="f6.b3">Registro completo de actividad para el administrador</li></ul>
       </div>
     </article>
@@ -162,10 +165,8 @@
 <section class="gallery" id="galeria" aria-labelledby="gal-t">
   <div class="wrap">
     <p class="kicker" data-i18n="gal.kicker">Galería</p>
-    <div class="gal-head">
-      <h2 class="h2" id="gal-t" data-i18n="gal.title">Mírala por dentro.</h2>
-      <div class="gal-nav"><button type="button" class="round" data-gal="-1" aria-label="Anterior" data-i18n-aria="gal.prev">‹</button><button type="button" class="round" data-gal="1" aria-label="Siguiente" data-i18n-aria="gal.next">›</button></div>
-    </div>
+    <h2 class="h2" id="gal-t" data-i18n="gal.title">Mírala por dentro.</h2>
+    <p class="gal-hint" data-i18n="gal.hint">Desliza las imágenes o usa las flechas de abajo.</p>
   </div>
   <div class="gal-track" id="galTrack" tabindex="0" aria-label="Capturas de Yakbal" data-i18n-aria="gal.aria">
     <figure><img data-shot="dash-dark" alt="" loading="lazy" width="1600" height="1000"><figcaption data-i18n="gal.c1">Tablero · tema oscuro</figcaption></figure>
@@ -176,7 +177,14 @@
     <figure class="tall"><img data-shot="mobile-receipt-light" alt="" loading="lazy" width="780" height="1688"><figcaption data-i18n="gal.c6">Recibo listo para compartir</figcaption></figure>
     <figure><img data-shot="billing-light" alt="" loading="lazy" width="1600" height="1000"><figcaption data-i18n="gal.c7">Facturación y cobros</figcaption></figure>
     <figure><img data-shot="dash-light" alt="" loading="lazy" width="1600" height="1000"><figcaption data-i18n="gal.c8">Tablero · tema claro</figcaption></figure>
-    <figure><img data-shot="team-dark" alt="" loading="lazy" width="1600" height="1000"><figcaption data-i18n="gal.c9">Registro de actividad</figcaption></figure>
+  </div>
+  <div class="wrap gal-ctrl">
+    <button type="button" class="round" data-gal="-1" aria-label="Anterior" data-i18n-aria="gal.prev">‹</button>
+    <div class="gal-mid">
+      <p class="gal-count" aria-live="polite"><b id="galNum">1</b> / <span id="galTot">8</span></p>
+      <div class="gal-dots" id="galDots"></div>
+    </div>
+    <button type="button" class="round" data-gal="1" aria-label="Siguiente" data-i18n-aria="gal.next">›</button>
   </div>
 </section>
 
@@ -262,9 +270,9 @@
     </div>
     <div class="faq-list">
       <details><summary data-i18n="q1">¿Tengo que instalar algo?</summary><p data-i18n="a1">No. Yakbal funciona en el navegador de tu computadora y de tu celular. Solo entras con tu usuario y tu contraseña.</p></details>
-      <details><summary data-i18n="q2">¿Mis datos están seguros?</summary><p data-i18n="a2">Cada persona entra con su propio usuario, la sesión se cierra sola si nadie la usa, solo el administrador decide quién tiene acceso y cada acción queda registrada.</p></details>
+      <details><summary data-i18n="q2">¿Mis datos están seguros?</summary><p data-i18n="a2">Cada persona entra con su propio usuario, la sesión se cierra sola si nadie la usa, solo entra quien tú autorizas y cada acción queda registrada.</p></details>
       <details><summary data-i18n="q3">¿Funciona en el celular?</summary><p data-i18n="a3">Sí, al cien por ciento: agenda, fichas, flujo de trabajo y recibos. El recibo se comparte por WhatsApp o por correo desde el mismo celular.</p></details>
-      <details><summary data-i18n="q4">¿Puedo usarlo con mi equipo?</summary><p data-i18n="a4">Sí. Das acceso a tus vendedores, eliges quién administra y puedes retirar un acceso al instante. Cada versión incluye un usuario; cada usuario adicional tiene un costo extra.</p></details>
+      <details><summary data-i18n="q4">¿Puedo usarlo con mi equipo?</summary><p data-i18n="a4">Sí. Cada versión incluye un usuario y puedes sumar los que necesites; cada usuario adicional tiene un costo extra. Nos dices quién entra y nosotros le damos su acceso.</p></details>
       <details><summary data-i18n="q5">¿En qué moneda e idioma funciona?</summary><p data-i18n="a5">En la moneda y con el impuesto de tu país. La interfaz está disponible en español y en inglés.</p></details>
       <details><summary data-i18n="q6">¿Se adapta a mi industria?</summary><p data-i18n="a6">Sí. Las etapas, las preguntas de cada ficha y los tipos de cita se ajustan a cómo vende tu negocio.</p></details>
       <details><summary data-i18n="q7">¿Cuánto cuesta?</summary><p data-i18n="a7">Depende de la versión y de lo que necesites adaptar. Escríbenos y en la primera conversación te damos un rango de precio, sin costo.</p></details>

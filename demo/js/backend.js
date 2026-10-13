@@ -295,23 +295,6 @@ const DemoBackend = (() => {
       log(lid, l.nombre, 'Nota añadida', String(texto).trim());
       return data();
     },
-    adminData() { return { usuarios: S.usuarios, auditoria: S.auditoria.slice(-1500).reverse(), totalAuditoria: S.auditoria.length }; },
-    createUser(u) {
-      const email = String(u.email || '').trim().toLowerCase();
-      if (!String(u.nombre || '').trim()) throw fail('El nombre es obligatorio');
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw fail('El email no es válido');
-      if (S.usuarios.some(x => x.email === email)) throw fail('Esa persona ya está en la lista de usuarios. Si está desactivada, reactívala.');
-      S.usuarios.push({ uid: id(), email, nombre: u.nombre.trim(), rol: u.rol === 'admin' ? 'admin' : 'usuario', activo: '1', creado: nowStamp(), creadoPor: ME.email, ultimoAcceso: '' });
-      audit('Usuario creado', u.nombre + ' <' + email + '> como ' + (u.rol || 'usuario'));
-      return { nuevo: true, enviado: true, admin: this.adminData() };
-    },
-    updateUser(uid, ch) {
-      const u = S.usuarios.find(x => x.uid === uid); if (!u || u.principal) throw fail('No se puede modificar este usuario');
-      if (ch.rol) u.rol = ch.rol; if (ch.activo !== undefined) u.activo = ch.activo ? '1' : '0';
-      audit('Usuario actualizado', u.nombre + ' <' + u.email + '>');
-      return this.adminData();
-    },
-    sendPasswordReset() { audit('Email de contraseña enviado', '(demo)'); return true; },
     saveConfig(cfg) { Object.keys(cfg).forEach(k => { if (k in S.config) S.config[k] = String(cfg[k]); }); audit('Datos de empresa actualizados', 'Cambió: ' + Object.keys(cfg).join(', ')); return data(); },
   };
 })();
