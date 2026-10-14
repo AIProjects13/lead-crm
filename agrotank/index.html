@@ -48,7 +48,9 @@
     <button class="nav active" data-act="nav" data-view="dashboard" title="Dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12A9 9 0 1 1 12 3v9z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"/></svg><span class="lbl">Dashboard</span></button>
     <button class="nav" data-act="nav" data-view="pipeline" title="Flujo de trabajo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="5" height="16" rx="2"/><rect x="10" y="4" width="5" height="11" rx="2"/><rect x="17" y="4" width="4" height="7" rx="2"/></svg><span class="lbl">Flujo de trabajo</span></button>
     <button class="nav" data-act="nav" data-view="facturacion" title="Facturación"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg><span class="lbl">Facturación</span></button>
+    <button class="nav" data-act="nav" data-view="facturas" title="Facturas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg><span class="lbl">Facturas</span></button>
     <button class="nav" data-act="nav" data-view="calendario" title="Calendario"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span class="lbl">Calendario</span></button>
+    <button class="nav" data-act="nav" data-view="config" title="Configuración"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="lbl">Configuración</span></button>
     <div class="nav-sep admin-only"></div>
     <button class="nav admin-only" data-act="nav" data-view="usuarios" title="Usuarios"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.9 3.1-7 7-7s7 3.1 7 7M17 11h6M20 8v6"/></svg><span class="lbl">Usuarios</span></button>
     <button class="nav admin-only" data-act="nav" data-view="registro" title="Registro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span class="lbl">Registro</span></button>
@@ -153,33 +155,71 @@
       <div class="kanban pay" id="kanbanPago"></div>
       <div class="page-title" style="margin-top:28px"><h1 style="font-size:24px">Reservas</h1><p>Facturas de anticipo (paga y señal). Arrastra una a “Reserva pagada” cuando se cobre. Se descuentan solas en la factura final.</p></div>
       <div class="kanban pay" id="kanbanReserva"></div>
-      <details class="card box cfg admin-only" id="cfgCard">
-        <summary><div>Datos de la empresa y facturación<small>Emisor, cuentas bancarias y numeración de las facturas</small></div><span class="mini">Editar</span></summary>
-        <form id="cfgForm" autocomplete="off" novalidate>
-          <div class="cfg-grid">
-            <div class="field span2"><label for="cfgNombre">Nombre y apellidos o razón social *</label><input id="cfgNombre" data-k="empresaNombre" maxlength="120" placeholder="Como figura en Hacienda"></div>
-            <div class="field"><label for="cfgNif">NIF / CIF *</label><input id="cfgNif" data-k="empresaNif" maxlength="20" autocapitalize="characters"></div>
-            <div class="field span3"><label for="cfgDir">Domicilio fiscal *</label><input id="cfgDir" data-k="empresaDireccion" maxlength="300" placeholder="Calle y número"></div>
-            <div class="field"><label for="cfgCP">Código postal *</label><input id="cfgCP" data-k="empresaCP" maxlength="10" inputmode="numeric"></div>
-            <div class="field"><label for="cfgPob">Población *</label><input id="cfgPob" data-k="empresaPoblacion" maxlength="80"></div>
-            <div class="field"><label for="cfgProv">Provincia</label><input id="cfgProv" data-k="empresaProvincia" maxlength="80"></div>
-            <div class="field"><label for="cfgEmail">Email</label><input id="cfgEmail" type="email" data-k="empresaEmail" maxlength="120"></div>
-            <div class="field"><label for="cfgTel">Teléfono</label><input id="cfgTel" data-k="empresaTelefono" maxlength="40"></div>
-            <div class="field"><label for="cfgIva">IVA por defecto</label><select id="cfgIva" data-k="ivaDefecto"><option value="21">21 % (general)</option><option value="10">10 % (reducido)</option><option value="4">4 % (superreducido)</option></select></div>
-            <div class="field span3"><label for="cfgCuentas">Cuentas bancarias para cobrar <span class="muted-s" style="font-weight:500">· una por línea: IBAN · banco</span></label>
-              <textarea id="cfgCuentas" data-k="cuentas" rows="2" maxlength="600" placeholder="ES14 0081 0100 9000 0179 1089 · Banco Sabadell"></textarea></div>
-            <div class="field span3"><label for="cfgCond">Condiciones de pago de las proformas <span class="muted-s" style="font-weight:500">· una por línea</span></label>
-              <textarea id="cfgCond" data-k="condicionesProforma" rows="2" maxlength="600"></textarea></div>
-            <div class="field span3"><label for="cfgResC">Concepto de la factura de reserva <span class="muted-s" style="font-weight:500">· {pedido} = importe del pedido sin IVA</span></label>
-              <textarea id="cfgResC" data-k="conceptoReserva" rows="3" maxlength="900"></textarea></div>
-            <div class="field span3"><label for="cfgResT">Texto legal de la reserva (arras)</label>
-              <textarea id="cfgResT" data-k="textoReserva" rows="4" maxlength="900"></textarea></div>
-            <div class="field"><label for="cfgSig">Nº de la próxima factura</label><input id="cfgSig" data-k="facturaSiguiente" maxlength="8" inputmode="numeric">
-              <small class="muted-s" id="cfgSigHint">Año + 4 cifras. Solo se puede ajustar antes de emitir la primera factura del año desde la app.</small></div>
-          </div>
-          <div class="factions" style="margin-top:4px"><button class="btn" type="submit" id="cfgBtn">Guardar datos</button></div>
-        </form>
-      </details>
+    </section>
+
+    <!-- ═════ FACTURAS (emitir a cualquier cliente + lista + cobros) ═════ -->
+    <section class="view" id="v-facturas">
+      <div class="page-title fac-title"><div><h1>Facturas</h1><p>Emite facturas, reservas y proformas a cualquier cliente y lleva el control de cobros. Haz clic en una para verla.</p></div>
+        <button class="btn" data-act="fac-new"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Nueva factura</button></div>
+      <div class="stage-cards pay-cards" id="facCards"></div>
+      <div class="card box">
+        <div class="fac-filters">
+          <input class="search" id="fQ" placeholder="Buscar por nº, cliente o NIF…" autocomplete="off" aria-label="Buscar facturas">
+          <select class="search" id="fTipo" aria-label="Tipo de documento"><option value="">Todos los tipos</option><option value="Factura">Facturas</option><option value="Anticipo">Reservas (anticipos)</option><option value="Proforma">Proformas</option><option value="Rectificativa">Rectificativas</option></select>
+          <select class="search" id="fCobro" aria-label="Estado de cobro"><option value="">Todos los cobros</option><option value="Pendiente de pago">Pendientes de pago</option><option value="Pagado">Cobradas</option></select>
+          <label class="fac-date">Desde <input class="search" type="date" id="fDesde"></label>
+          <label class="fac-date">Hasta <input class="search" type="date" id="fHasta"></label>
+        </div>
+        <div class="tablewrap"><table class="fac-table">
+          <thead><tr><th>Nº</th><th>Documento</th><th>Cliente</th><th>Fecha</th><th>Total</th><th>Cobro</th></tr></thead>
+          <tbody id="facBody"></tbody>
+        </table></div>
+        <div id="facEmpty"></div>
+      </div>
+    </section>
+
+    <!-- ═════ CONFIGURACIÓN (todos los usuarios; cambios con motivo y registro) ═════ -->
+    <section class="view" id="v-config">
+      <div class="page-title"><h1>Configuración</h1><p>Datos de la empresa y de cobro que salen en las facturas <b>nuevas</b>. Lo ya emitido no cambia. Cada cambio queda registrado con su motivo.</p></div>
+      <form class="card box" id="cfgForm" autocomplete="off" novalidate>
+        <h3 class="cfg-h">Empresa · emisor de las facturas</h3>
+        <div class="cfg-grid">
+          <div class="field span2"><label for="cfgNombre">Nombre y apellidos o razón social *</label><input id="cfgNombre" data-k="empresaNombre" maxlength="120" placeholder="Como figura en Hacienda"></div>
+          <div class="field"><label for="cfgNif">NIF / CIF *</label><input id="cfgNif" data-k="empresaNif" maxlength="20" autocapitalize="characters"></div>
+          <div class="field span3"><label for="cfgDir">Domicilio fiscal *</label><input id="cfgDir" data-k="empresaDireccion" maxlength="300" placeholder="Calle y número"></div>
+          <div class="field"><label for="cfgCP">Código postal *</label><input id="cfgCP" data-k="empresaCP" maxlength="10" inputmode="numeric"></div>
+          <div class="field"><label for="cfgPob">Población *</label><input id="cfgPob" data-k="empresaPoblacion" maxlength="80"></div>
+          <div class="field"><label for="cfgProv">Provincia</label><input id="cfgProv" data-k="empresaProvincia" maxlength="80"></div>
+          <div class="field"><label for="cfgEmail">Email</label><input id="cfgEmail" type="email" data-k="empresaEmail" maxlength="120"></div>
+          <div class="field"><label for="cfgTel">Teléfono</label><input id="cfgTel" data-k="empresaTelefono" maxlength="40"></div>
+        </div>
+        <h3 class="cfg-h">Cuentas bancarias</h3>
+        <p class="muted-s cfg-note">La cuenta <b>predeterminada</b> sale sola en las facturas que se cobran por transferencia. Si dejas de usar una, desactívala: las facturas antiguas la conservan.</p>
+        <div class="cuentas-ed" id="cfgCuentas"></div>
+        <button type="button" class="btn ghost sm" data-act="cuenta-add">+ Añadir cuenta</button>
+        <h3 class="cfg-h">Facturación</h3>
+        <div class="cfg-grid">
+          <div class="field"><label for="cfgIva">IVA por defecto</label><select id="cfgIva" data-k="ivaDefecto"><option value="21">21 % (general)</option><option value="10">10 % (reducido)</option><option value="4">4 % (superreducido)</option></select></div>
+          <div class="field span2"><label for="cfgSig">Nº de la próxima factura</label><input id="cfgSig" data-k="facturaSiguiente" maxlength="8" inputmode="numeric">
+            <small class="muted-s" id="cfgSigHint"></small></div>
+          <div class="field span3"><label for="cfgResC">Concepto de la factura de reserva <span class="muted-s" style="font-weight:500">· {pedido} = importe del pedido sin IVA</span></label>
+            <textarea id="cfgResC" data-k="conceptoReserva" rows="3" maxlength="900"></textarea></div>
+          <div class="field span3"><label for="cfgResT">Texto legal de la reserva (arras)</label>
+            <textarea id="cfgResT" data-k="textoReserva" rows="4" maxlength="900"></textarea></div>
+        </div>
+        <div class="cfg-save">
+          <div class="field"><label for="cfgMotivo">Motivo del cambio *</label><input id="cfgMotivo" maxlength="300" placeholder="Ej. Cambiamos de banco para cobrar"></div>
+          <button type="button" class="btn ghost" data-act="cfg-reset">Descartar</button>
+          <button class="btn" type="submit" id="cfgBtn">Guardar cambios</button>
+        </div>
+      </form>
+      <div class="card box">
+        <div class="box-head"><div><h2>Historial de cambios</h2><small id="cfgHistCount"></small></div></div>
+        <div class="tablewrap"><table class="cfg-hist">
+          <thead><tr><th>Fecha</th><th>Usuario</th><th>Qué</th><th>Antes</th><th>Después</th><th>Motivo</th></tr></thead>
+          <tbody id="cfgHist"></tbody>
+        </table></div>
+      </div>
     </section>
 
     <!-- ═════ CALENDARIO ═════ -->
@@ -249,6 +289,7 @@
 
 <div class="overlay" id="ovLead"><div class="sheet" id="ficha"></div></div>
 <div class="overlay" id="ovCita"><div class="sheet" id="citaBox"></div></div>
+<div class="overlay" id="ovFactura"><div class="sheet" id="facBox"></div></div>
 <div class="overlay" id="ovRecibo"><div class="sheet" id="reciboBox"></div></div>
 <div class="toast" id="toast"></div>
 

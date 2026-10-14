@@ -45,10 +45,15 @@ const lineasDe=l=>{try{const a=JSON.parse(l.factLineas||'[]');if(a.length)return
 /** Igual que el servidor: céntimos exactos por línea, cuota redondeada al céntimo. */
 function calc(lineas,iva){let b=0;const ls=lineas.map(x=>{const t=Math.round(toNum(x.q||1)*Math.round(toNum(x.p)*100));b+=t;return Object.assign({},x,{t:(t/100).toFixed(2)})});
   const c=Math.round(b*toNum(iva)/100);return {lineas:ls,base:b/100,cuota:c/100,total:(b+c)/100}}
-const cuentasCfg=()=>String((DATA.config||{}).cuentas||'').split('\n').map(s=>s.trim()).filter(Boolean);
+/** Cuentas bancarias de la Configuración: [{id, iban, banco, titular, activa, predeterminada}] */
+const cuentasAct=()=>(DATA.cuentas||[]).filter(c=>c.activa);
+const cuentaPred=()=>{const a=cuentasAct();return a.find(c=>c.predeterminada)||a[0]||null};
+/** Texto de la cuenta que se copia en la factura (igual que el servidor): "IBAN · banco · titular" */
+function cuentaTexto(forma,id){if(forma!=='Transferencia')return '';const a=cuentasAct(),c=a.find(x=>x.id===id)||cuentaPred();return c?[c.iban,c.banco||'',c.titular||''].join(' · '):''}
 const facturasDe=id=>(DATA.facturas||[]).filter(f=>f.leadId===id);
-/** Factura vigente (emitida y no anulada) del lead. */
-const activa=l=>l&&l.factNumero?(DATA.facturas||[]).find(f=>f.numero===l.factNumero&&f.tipo==='Factura'&&f.estado==='Emitida'):null;
+/** Facturas finales vigentes del lead (sin anticipos ni anuladas); la última es la "activa". */
+const finalesDe=id=>(DATA.facturas||[]).filter(f=>f.leadId===id&&f.tipo==='Factura'&&f.subtipo!=='Anticipo'&&f.estado==='Emitida');
+const activa=l=>l?finalesDe(l.id).slice(-1)[0]||null:null;
 /** NIF español (DNI, NIE, CIF) con dígito de control, o NIF-IVA extranjero. Igual que en el servidor. */
 function validNif(s){s=String(s||'').toUpperCase().replace(/[\s.\-]/g,'');const L='TRWAGMYFPDXBNJZSQVHLCKE';let m;
   if((m=s.match(/^(\d{8})([A-Z])$/)))return L[+m[1]%23]===m[2];
@@ -57,53 +62,23 @@ function validNif(s){s=String(s||'').toUpperCase().replace(/[\s.\-]/g,'');const 
   return /^(?!ES)[A-Z]{2}[A-Z0-9]{2,13}$/.test(s)}
 const locTxt=(cp,pob,prov)=>[[cp,pob].filter(Boolean).join(' '),prov&&prov!==pob?prov:''].filter(Boolean).join(', ');
 /** Anticipos (reservas) vigentes del lead que aún no se han descontado en una factura final. */
-function anticiposPendientes(leadId){const fs=DATA.facturas||[];
-  const usados=fs.filter(f=>f.tipo==='Factura'&&f.estado==='Emitida'&&f.deduce).flatMap(f=>String(f.deduce).split(','));
+function anticiposPendientes(leadId,ignorar){const fs=DATA.facturas||[];
+  const usados=fs.filter(f=>f.tipo==='Factura'&&f.estado==='Emitida'&&f.deduce&&f.numero!==ignorar).flatMap(f=>String(f.deduce).split(','));
   return fs.filter(f=>f.leadId===leadId&&f.subtipo==='Anticipo'&&f.estado==='Emitida'&&!usados.includes(f.numero))}
 const fmtNum=n=>eur(n).replace(' €','');
 /** Nombre del documento: "Factura", "Factura de anticipo", "Factura proforma"… */
 const docLabel=f=>f.subtipo==='Anticipo'?'Factura de anticipo':cap(TIT[f.tipo].toLowerCase());
-/** Documento en borrador a partir de la ficha (mismo cálculo que hará el servidor al emitirlo).
- *  tipo: 'Factura' (final: descuenta los anticipos), 'Anticipo' (reserva) o 'Proforma'. */
-function borrador(l,tipo){
-  const d=borradorBase(l,tipo==='Anticipo'?'Factura':tipo);
-  if(tipo==='Anticipo'){const cfg=DATA.config||{},T=Math.round(toNum(l.reservaImporte)*100),b=Math.round(T*100/(100+toNum(d.ivaPct))),base=(b/100).toFixed(2);
-    return Object.assign(d,{subtipo:'Anticipo',pedidoTotal:d.total,notas:'',condiciones:cfg.textoReserva||'',
-      lineas:[{c:String(cfg.conceptoReserva||'').replace('{pedido}',fmtNum(d.base)),q:'1',p:base,t:base}],base:b/100,cuota:(T-b)/100,total:T/100})}
-  if(tipo==='Factura'){const ants=anticiposPendientes(l.id);if(ants.length){
-    const r=calc(d.lineas.map(x=>({c:x.c,q:x.q,p:x.p})).concat(ants.map(a=>({c:`Anticipo según factura n.º ${a.numero} de ${fdate(a.fecha)}`,q:'1',p:'-'+a.base}))),d.ivaPct);
-    // IVA del pedido completo menos el IVA ya cobrado en los anticipos (igual que el servidor)
-    const cu=Math.round(d.cuota*100)-ants.reduce((s,a)=>s+Math.round(toNum(a.cuota)*100),0);
-    Object.assign(d,{lineas:r.lineas,base:r.base,cuota:cu/100,total:(Math.round(r.base*100)+cu)/100,deduce:ants.map(a=>a.numero).join(',')})}}
-  return d}
-function borradorBase(l,tipo){const cfg=DATA.config||{},iva=ivaDe(l),t=calc(lineasDe(l),iva),cs=cuentasCfg();
-  return {numero:'',tipo,subtipo:'',fecha:DATA.hoy,fechaOperacion:l.factFechaOperacion&&l.factFechaOperacion!==DATA.hoy?l.factFechaOperacion:'',leadId:l.id,estado:'Borrador',rectificaA:'',motivo:'',
-    emisorNombre:cfg.empresaNombre||'',emisorNif:cfg.empresaNif||'',emisorEmail:cfg.empresaEmail||'',
-    emisorDireccion:[cfg.empresaDireccion,locTxt(cfg.empresaCP,cfg.empresaPoblacion,cfg.empresaProvincia)].filter(Boolean).join('\n'),
-    clienteNombre:l.factNombre||l.nombre,clienteNif:String(l.factNif||'').toUpperCase(),
-    clienteDireccion:[l.factDireccion,locTxt(l.factCP,l.factPoblacion,l.factProvincia)].filter(Boolean).join('\n'),
-    lineas:t.lineas,notas:l.factNotas||'',base:t.base,ivaPct:iva,cuota:t.cuota,total:t.total,formaPago:l.factFormaPago||'',
-    cuenta:l.factFormaPago==='Transferencia'?(cs.includes(l.factCuenta)?l.factCuenta:cs[0]||''):'',condiciones:tipo==='Proforma'?cfg.condicionesProforma||'':''}}
 /** Documento ya emitido: copia fija guardada en el libro de facturas. */
 const docFrom=f=>Object.assign({},f,{lineas:(()=>{try{return JSON.parse(f.lineas||'[]')}catch(e){return []}})(),base:toNum(f.base),cuota:toNum(f.cuota),total:toNum(f.total)});
-/** Lo que falta para poder emitir (mismas reglas que el servidor, para avisar antes). */
-function faltanDatos(l,d){const cfg=DATA.config||{},f=[];
-  if(!cfg.empresaNombre||!cfg.empresaNif||!cfg.empresaDireccion||!cfg.empresaCP||!cfg.empresaPoblacion)f.push('datos de la empresa (pestaña Facturación)');
-  const ant=d.subtipo==='Anticipo';
-  if(d.tipo==='Factura'){if(!ant&&l.etapa!=='Facturado')f.push('pasar el lead a “Facturado”');if(!d.clienteNif)f.push('NIF/CIF del cliente');
-    if(!l.factDireccion||!l.factCP||!l.factPoblacion)f.push('dirección, código postal y población del cliente')}
-  if(ant){if(l.etapa==='Perdido')f.push('que el lead no esté perdido');if(activa(l))f.push('que no tenga ya la factura final');
-    if(!lineasDe(l).length)f.push('las líneas del pedido (para indicar su importe total)');
-    if(!(toNum(l.reservaImporte)>0))f.push('el importe de la reserva (IVA incluido)');else if(d.total>d.pedidoTotal)f.push('una reserva que no supere el total del pedido')}
-  if(d.clienteNif&&!validNif(d.clienteNif))f.push('un NIF/CIF del cliente válido (revisa la letra)');
-  if(!d.lineas.length)f.push('al menos una línea con concepto y precio');else if(!(d.base>0))f.push(d.deduce?'que los anticipos no superen el importe final':'un importe mayor que 0');
-  if(!TIPOS_IVA.includes(String(d.ivaPct)))f.push('un IVA de 21, 10 o 4 %');
-  if(d.formaPago==='Transferencia'&&!d.cuenta)f.push('una cuenta bancaria (Datos de la empresa)');
-  return f}
+/** Estado de cobro de una factura (las proformas y rectificativas no se cobran). */
+const cobrable=f=>f.tipo==='Factura'&&f.estado==='Emitida';
+const cobroTag=f=>{if(f.estado==='Anulada')return '<span class="temp" style="--tc:var(--t-out)">Anulada</span>';if(!cobrable(f))return '<span class="muted-s">—</span>';
+  const ok=f.estadoPago==='Pagado';return `<span class="temp" style="--tc:var(${ok?'--t-hot':'--t-warm'})">${ok?'Cobrada '+fdate(f.fechaPago):'Pendiente de pago'}</span>`};
 const qtyTxt=q=>{const n=toNum(q);return Number.isInteger(n)&&Math.abs(n)<10?(n<0?'-':'')+String(Math.abs(n)).padStart(2,'0'):n.toLocaleString('es-ES')};
 /** El documento A4, con el diseño de las facturas de Agrotank. */
 function docHtml(d){
-  const [iban,banco]=String(d.cuenta||'').split(/\s*[·|]\s*/),cond=String(d.condiciones||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  // Al pie solo el detalle del cobro. (Las proformas antiguas con condiciones de pago las siguen mostrando: no se cambia el pasado.)
+  const [iban,banco,titular]=String(d.cuenta||'').split(/\s*[·|]\s*/),cond=String(d.condiciones||'').split('\n').map(s=>s.trim()).filter(Boolean);
   const rect=d.tipo==='Rectificativa',ant=d.subtipo==='Anticipo';
   // En el anticipo la primera frase del concepto va en negrita, como en el modelo del cliente
   const concepto=c=>{if(!ant)return esc(c);const k=String(c).indexOf('.');return k>0?`<b>${esc(c.slice(0,k+1))}</b>${esc(c.slice(k+1))}`:esc(c)};
@@ -119,15 +94,15 @@ function docHtml(d){
     <div class="fx-sum"><div><span>SUBTOTAL</span><b>${eur(d.base)}</b></div><div><span>IVA ${String(d.ivaPct).replace('.',',')} %</span><b>${eur(d.cuota)}</b></div><div><span>TOTAL</span><b>${eur(d.total)}</b></div></div>
     <div class="fx-foot"><div class="fx-em"><b>${esc(d.emisorNombre)}</b><span>${esc([d.emisorNif,d.emisorDireccion,d.emisorEmail].filter(Boolean).join('\n'))}</span></div>
       <div class="fx-pay">${ant?`<p class="fx-arras">${esc(d.condiciones)}</p>`:cond.length?`<p><b>Condiciones de pago:</b></p><ul>${cond.map(c=>{const m=c.match(/^([^:]{2,40}:)(.*)$/);return `<li>${m?`<b>${esc(m[1])}</b>${esc(m[2])}`:esc(c)}</li>`}).join('')}</ul>`:''}
-        ${d.formaPago?`<p>Forma de pago: ${esc(FORMA_TXT[d.formaPago]||d.formaPago)}</p>`:''}${iban?`<p>IBAN: ${esc(iban)}</p>`:''}${banco?`<p>${esc(banco)}</p>`:''}</div></div>
+        ${d.formaPago?`<p>Forma de pago: ${esc(FORMA_TXT[d.formaPago]||d.formaPago)}</p>`:''}${iban?`<p>IBAN: ${esc(iban)}</p>`:''}${banco?`<p>${esc(banco)}</p>`:''}${titular?`<p>Titular: ${esc(titular)}</p>`:''}</div></div>
     ${d.tipo==='Proforma'?'<p class="fx-legal">Factura proforma: documento informativo, sin validez como factura.</p>':''}</div>`}
 /** Texto del documento para email y WhatsApp. */
-function docTexto(d){const [iban]=String(d.cuenta||'').split(/\s*[·|]\s*/);
+function docTexto(d){const [iban,,titular]=String(d.cuenta||'').split(/\s*[·|]\s*/);
   return [`${docLabel(d)} n.º ${d.numero} · ${d.emisorNombre}`,`Fecha: ${fdate(d.fecha)}`,'',
     `Cliente: ${d.clienteNombre}${d.clienteNif?' ('+d.clienteNif+')':''}`,
     ...d.lineas.map(x=>`· ${d.subtipo==='Anticipo'?String(x.c).split('.')[0]:x.c} × ${qtyTxt(x.q)}: ${eur(toNum(x.t))}`),'',
     `Subtotal: ${eur(d.base)}`,`IVA ${String(d.ivaPct).replace('.',',')} %: ${eur(d.cuota)}`,`TOTAL: ${eur(d.total)}`,
-    d.formaPago?`\nForma de pago: ${FORMA_TXT[d.formaPago]||d.formaPago}${iban?' · IBAN '+iban:''}`:''].join('\n').trim()}
+    d.formaPago?`\nForma de pago: ${FORMA_TXT[d.formaPago]||d.formaPago}${iban?' · IBAN '+iban:''}${titular?' · Titular: '+titular:''}`:''].join('\n').trim()}
 const pdfName=d=>`${docLabel(d)} ${d.numero} - ${d.clienteNombre}`.replace(/[\\/:*?"<>|]+/g,'').slice(0,90)+'.pdf';
 function loadH2P(){return window.html2pdf?Promise.resolve():new Promise((res,rej)=>{const s=document.createElement('script');
   s.src=H2P.src;s.integrity=H2P.sri;s.crossOrigin='anonymous';s.referrerPolicy='no-referrer';s.onload=res;s.onerror=()=>rej(new Error('pdf'));document.head.appendChild(s)})}
@@ -219,7 +194,7 @@ function enter(...ids){
     el.classList.remove('enter');void el.offsetWidth;el.classList.add('enter');
     clearTimeout(el._e);el._e=setTimeout(()=>el.classList.remove('enter'),1500);});
 }
-const VIEW_PARTS={dashboard:['kpis','progChart','bento2','todayList','funnel','tbody'],pipeline:['stageCards','kanban'],facturacion:['payCards','kanbanPago','kanbanReserva'],calendario:['cal'],usuarios:['usersBody'],registro:['auditBody']};
+const VIEW_PARTS={dashboard:['kpis','progChart','bento2','todayList','funnel','tbody'],pipeline:['stageCards','kanban'],facturacion:['payCards','kanbanPago','kanbanReserva'],facturas:['facCards','facBody'],config:['cfgForm','cfgHist'],calendario:['cal'],usuarios:['usersBody'],registro:['auditBody']};
 function countTo(el,to){
   const from=+el.textContent||0;cancelAnimationFrame(el._r);
   if(from===to||REDUCED||document.hidden){el.textContent=to;return} // en segundo plano no hay animación: valor directo
@@ -249,7 +224,7 @@ function renderAll(){
   $('today').textContent='Hoy, '+T.toLocaleDateString('es-ES',{weekday:'short',day:'numeric',month:'short'}).replace(/\./g,'');
   for(const k of ['vencido','porvencer','trabajar','aldia'])countTo($('k-'+k),DATA.leads.filter(l=>status(l)===k).length);
   renderBig();renderDonut();renderHoy();renderFunnel();renderFilters();renderTable();
-  renderStageCards();renderKanban();renderPagos();renderCal();renderProgress();
+  renderStageCards();renderKanban();renderPagos();renderFacturas();renderCal();renderProgress();
 }
 
 function renderBig(){
@@ -594,13 +569,10 @@ function openLead(id,preset){
     </div>
     <div class="sec full"><h4>Facturación</h4>
       ${docs.length?`<div class="docs">${docs.map(f=>`<div class="doc-row ${f.estado==='Anulada'?'anulada':''}"><span><b>${esc(docLabel(f))} ${esc(f.numero)}</b>
-        <span class="muted-s"> · ${fdate(f.fecha)} · ${eur(toNum(f.total))}${f.estado==='Anulada'?' · anulada':''}</span>
-        ${f.subtipo==='Anticipo'&&f.estado==='Emitida'?' '+reservaTag(f):''}</span>
+        <span class="muted-s"> · ${fdate(f.fecha)} · ${eur(toNum(f.total))}</span> ${cobroTag(f)}</span>
         <button class="btn sm ghost" data-act="doc-open" data-n="${esc(f.numero)}">Ver</button></div>`).join('')}</div>`:''}
-      ${act?`<div class="locked-note">🔒 Datos fijados por la factura ${esc(act.numero)}. Para corregir algo, un administrador debe anularla con una factura rectificativa y emitir una nueva.</div>`
-        :`<p class="muted-s" style="margin-bottom:12px">Puedes ir completándolos en cualquier momento. El nº de factura se asigna solo al pulsar “Emitir factura”.</p>`}
+      <p class="muted-s" style="margin-bottom:12px">Estos datos y el pedido rellenan solos las facturas nuevas de este cliente. Cambiarlos no afecta a las ya emitidas.</p>
       ${base.reciboAntiguo?`<p class="muted-s" style="margin-bottom:12px">Recibo anterior al sistema de facturas: ${esc(base.reciboAntiguo)}</p>`:''}
-      <fieldset class="fact-fs" ${act?'disabled':''} style="border:0;padding:0;margin:0;min-width:0">
       <div class="fact-grid">
         <div class="field span2"><label for="fFNombre">Nombre o razón social</label><input id="fFNombre" value="${esc(l.factNombre)}" maxlength="150" placeholder="${esc(l.nombre||'Como figura en la factura')}"></div>
         <div class="field"><label for="fFNif">NIF / CIF</label><input id="fFNif" value="${esc(l.factNif)}" maxlength="20" autocapitalize="characters"><small class="muted-s" id="fFNifOk"></small></div>
@@ -610,37 +582,30 @@ function openLead(id,preset){
         <div class="field"><label for="fFProv">Provincia</label><input id="fFProv" value="${esc(l.factProvincia)}" maxlength="80"></div>
         <div class="field"><label for="fFEmail">Email de facturación</label><input id="fFEmail" type="email" value="${esc(l.factEmail)}" maxlength="120" placeholder="${esc(l.email||'')}"></div>
       </div>
-      <div class="field"><label>Líneas <span class="muted-s" style="font-weight:500">· precios sin IVA</span></label>
+      <div class="field"><label>Pedido <span class="muted-s" style="font-weight:500">· líneas con precio sin IVA</span></label>
         <div class="lines-ed" id="fLines"></div>
-        ${act?'':'<button type="button" class="btn ghost sm" data-act="line-add">+ Añadir línea</button>'}</div>
+        <button type="button" class="btn ghost sm" data-act="line-add">+ Añadir línea</button></div>
       <div class="fact-grid">
         <div class="field span2"><label for="fFNotas">Observaciones <span class="muted-s" style="font-weight:500">· salen bajo las líneas</span></label><input id="fFNotas" value="${esc(l.factNotas)}" maxlength="300" placeholder="Ej. Transporte incluido"></div>
         <div class="field"><label for="fFIva">IVA</label><select id="fFIva"><option value="">Por defecto (${esc(toNum((DATA.config||{}).ivaDefecto||21))} %)</option>${TIPOS_IVA.map(v=>`<option value="${v}" ${l.factIva!==''&&l.factIva!=null&&String(toNum(l.factIva))===v?'selected':''}>${v} %</option>`).join('')}</select></div>
         <div class="field"><label for="fFForma">Forma de pago</label><select id="fFForma"><option value="">—</option>${FORMAS_PAGO.map(f=>`<option value="${f}" ${f===l.factFormaPago?'selected':''}>${FORMA_TXT[f]||f}</option>`).join('')}</select></div>
-        <div class="field" id="cuentaBox"><label for="fFCuenta">Cuenta para el pago</label><select id="fFCuenta">${cuentasCfg().map(c=>`<option ${c===l.factCuenta?'selected':''}>${esc(c)}</option>`).join('')||'<option value="">Añade una cuenta en Datos de la empresa</option>'}</select></div>
-        <div class="field"><label for="fFFechaOp">Fecha de la operación <span class="muted-s" style="font-weight:500">· solo si es distinta</span></label><input id="fFFechaOp" type="date" value="${esc(l.factFechaOperacion)}"></div>
       </div>
-      </fieldset>
-      ${act?'':`<div class="fact-grid"><div class="field"><label for="fFReserva">Reserva / anticipo <span class="muted-s" style="font-weight:500">· IVA incluido</span></label>
-        <input id="fFReserva" value="${esc(l.reservaImporte?toNum(l.reservaImporte).toLocaleString('es-ES',{minimumFractionDigits:2}):'')}" inputmode="decimal" maxlength="14" placeholder="Ej. 300,00">
-        <small class="muted-s">Se factura aparte y se descuenta sola en la factura final.</small></div></div>`}
       <div class="fact-total"><span id="fFDesglose"></span><b id="fFTotal"></b></div>
       ${id?`<div class="factions" style="justify-content:flex-start">
-        ${act?`<button class="btn sm emit" data-act="doc-open" data-n="${esc(act.numero)}">🧾 Ver factura ${esc(act.numero)}</button>`
-          :`${base.etapa!=='Perdido'?'<button class="btn ghost sm" data-act="doc-prev" data-tipo="Proforma">📄 Factura proforma</button><button class="btn ghost sm" data-act="doc-prev" data-tipo="Anticipo">🔖 Factura de reserva</button>':''}
-            ${base.etapa==='Facturado'?'<button class="btn sm emit" data-act="doc-prev" data-tipo="Factura">🧾 Emitir factura…</button>':'<span class="muted-s">La factura se emite cuando el lead está en “Facturado”.</span>'}`}</div>`:''}
+        ${act?`<button class="btn sm ghost" data-act="doc-open" data-n="${esc(act.numero)}">🧾 Ver factura ${esc(act.numero)}</button>`:''}
+        <button class="btn sm emit" data-act="fac-from-lead" data-tipo="Factura">🧾 Nueva factura</button>
+        ${base.etapa!=='Perdido'?'<button class="btn ghost sm" data-act="fac-from-lead" data-tipo="Anticipo">🔖 Reserva</button><button class="btn ghost sm" data-act="fac-from-lead" data-tipo="Proforma">📄 Proforma</button>':''}</div>`:''}
     </div>
    </div>
    ${id&&!docs.some(f=>f.tipo!=='Proforma')?`<div class="danger-zone"><span>Eliminar el lead borra también sus citas, notas y movimientos. No se puede deshacer.</span>
      <button class="btn danger sm" data-act="lead-del">Eliminar lead</button></div>`:''}
    <div class="factions"><button class="btn ghost" data-act="close-lead">Cerrar</button><button class="btn" data-act="lead-save" id="saveBtn">${id?'Guardar cambios':'Crear lead'}</button></div>`;
   // Líneas y total en vivo mientras se escribe
-  renderLineas(!!act);
+  renderLineas(false);
   $('fLines').addEventListener('input',e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;lineasEd[i][k]=e.target.value;recalcFact()});
   $('fFIva').addEventListener('change',recalcFact);
   const nifChk=()=>{const v=$('fFNif').value.trim();$('fFNifOk').textContent=v?(validNif(v)?'✓ NIF válido':'⚠ Revisa el NIF: la letra o el dígito de control no cuadran'):''};
   $('fFNif').addEventListener('input',nifChk);nifChk();
-  const cuentaVis=()=>{$('cuentaBox').hidden=$('fFForma').value!=='Transferencia'};$('fFForma').addEventListener('change',cuentaVis);cuentaVis();
   recalcFact();
   $('fEtapa').addEventListener('change',()=>{const v=$('fEtapa').value;
     $('lostBox').hidden=v!=='Perdido';$('payBox').hidden=v!=='Facturado';if(!$('lostBox').hidden)$('fMotivo').focus()});
@@ -674,8 +639,8 @@ async function saveLead(btn,after){
     factNombre:v('fFNombre'),factNif:v('fFNif'),factEmail:v('fFEmail'),factDireccion:v('fFDir'),factCP:v('fFCP'),
     factPoblacion:v('fFPob'),factProvincia:v('fFProv'),factIva:$('fFIva').value,factFormaPago:$('fFForma').value,
     factLineas:lineasEd.filter(x=>x.c.trim()||x.p.trim()).map(x=>({c:x.c.trim(),q:x.q.trim()||'1',p:x.p.trim()})),
-    factNotas:v('fFNotas'),factCuenta:$('fFCuenta').value,factFechaOperacion:$('fFFechaOp').value,
-    reservaImporte:$('fFReserva')?v('fFReserva'):(lead(fichaId)||{}).reservaImporte,
+    factNotas:v('fFNotas'),factCuenta:(lead(fichaId)||{}).factCuenta,factFechaOperacion:(lead(fichaId)||{}).factFechaOperacion,
+    reservaImporte:(lead(fichaId)||{}).reservaImporte,
     nota:v('fNota')}; // la nota escrita y no añadida aún también se guarda (no se pierde nada)
   if(!data.nombre){toast('El nombre es obligatorio',true);$('fNombre').focus();return}
   if(data.etapa==='Perdido'&&!data.motivoPerdida){toast('Indica por qué no se ganó el lead',true);$('fMotivo').focus();return}
@@ -687,43 +652,50 @@ async function saveLead(btn,after){
   catch(e){btn.removeAttribute('aria-busy')}
 }
 
-// ───── documento: ver, emitir, anular, PDF y compartir ─────
+/// ───── documento: ver, emitir, cobrar, corregir, anular, PDF y compartir ─────
 let reciboId=null,docCur=null;
-/** o = {numero} para un documento emitido, o {leadId, tipo:'Factura'|'Proforma'} para la vista previa (borrador). */
+/** o = {numero} para un documento emitido, o {draft} para la vista previa que viene del editor de facturas. */
 function openDoc(o){
   let d,l;
   if(o.numero){const f=(DATA.facturas||[]).find(x=>x.numero===o.numero);if(!f)return;d=docFrom(f);l=lead(f.leadId)}
-  else{l=lead(o.leadId);if(!l)return;d=borrador(l,o.tipo)}
+  else{d=o.draft;l=lead(d.leadId)}
   docCur={d,leadId:l?l.id:d.leadId};reciboId=docCur.leadId;
-  const borr=d.estado==='Borrador',admin=DATA.yo&&DATA.yo.rol==='admin',faltan=borr&&l?faltanDatos(l,d):[];
+  const borr=d.estado==='Borrador',admin=DATA.yo&&DATA.yo.rol==='admin',faltan=borr?feFaltan(d):[];
+  const corr=borr&&facEd&&facEd.modo==='corregir';
   const rect=d.estado==='Anulada'?(DATA.facturas||[]).find(f=>f.tipo==='Rectificativa'&&f.rectificaA===d.numero):null;
   const emailCli=l?(l.factEmail||l.email):'',tel=l?waPhone(l.telefono):'',texto=borr?'':docTexto(d);
   const asunto=`${docLabel(d)} ${d.numero} · ${d.emisorNombre}`;
   const mail=`mailto:${encodeURIComponent(emailCli||'')}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(texto+'\n\n(Se adjunta el PDF)')}`;
   const wa=`https://wa.me/${tel}?text=${encodeURIComponent(texto)}`;
-  const ant=d.subtipo==='Anticipo',resPag=(d.estadoPago||'Pendiente de pago')==='Pagado';
-  const titulo=borr?`Vista previa · ${docLabel(d)}`:`${docLabel(d)} ${d.numero}`;
-  const tag=borr?'':ant?(d.estado==='Emitida'?reservaTag(d):''):(l&&d.tipo==='Factura'?pagoTag(l):'');
+  const ant=d.subtipo==='Anticipo',pag=d.estadoPago==='Pagado';
+  const titulo=borr?(corr?`Corrección de la factura ${facEd.orig}`:`Vista previa · ${docLabel(d)}`):`${docLabel(d)} ${d.numero}`;
+  const emitTxt=corr?'✓ Guardar corrección':d.tipo==='Factura'?(ant?'🔖 Emitir reserva ':'🧾 Emitir factura ')+esc(DATA.siguienteFactura||''):'📄 Emitir proforma';
   $('reciboBox').innerHTML=`
-    <div class="doc-bar no-print"><h3>${esc(titulo)}</h3>${tag}
+    <div class="doc-bar no-print"><h3>${esc(titulo)}</h3>${!borr&&cobrable(d)?cobroTag(d):''}
       <button class="icon-btn" data-act="close-recibo" aria-label="Cerrar" style="background:var(--card-2)">✕</button></div>
-    ${borr?(faltan.length?`<div class="rc-warn no-print">⚠ Para emitirla falta: ${esc(faltan.join('; '))}.</div>`
-      :`<div class="rc-ok no-print">Revisa los datos. Al pulsar “Emitir” recibe su número${d.tipo==='Factura'?` (será la <b>${esc(DATA.siguienteFactura||'')}</b>)`:''} y queda guardada sin cambios posibles.${d.deduce?' Se descuentan los anticipos '+esc(d.deduce.replace(/,/g,', '))+'.':''}</div>`):''}
-    ${ant&&!borr&&d.estado==='Emitida'?`<div class="${resPag?'rc-ok':'rc-warn'} no-print" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-      <span>${resPag?'✓ Reserva cobrada el '+fdate(d.fechaPago):'Reserva pendiente de cobro'}</span>
-      <button class="btn sm ${resPag?'ghost':'emit'}" data-act="reserva-pago" data-n="${esc(d.numero)}" data-v="${resPag?'Pendiente de pago':'Pagado'}">${resPag?'Marcar como pendiente':'✓ Marcar como pagada'}</button></div>`:''}
+    ${borr?(faltan.length?`<div class="rc-warn no-print">⚠ Falta: ${esc(faltan.join('; '))}.</div>`
+      :`<div class="rc-ok no-print">${corr?`Al guardar se emite la rectificativa que anula la ${esc(facEd.orig)} y esta factura nueva${d.tipo==='Factura'?` (será la <b>${esc(DATA.siguienteFactura||'')}</b>)`:''}. Queda registrado el motivo y qué cambió.`
+        :`Revisa los datos. Al pulsar “Emitir” recibe su número${d.tipo==='Factura'?` (será la <b>${esc(DATA.siguienteFactura||'')}</b>)`:''} y queda guardada sin cambios posibles.`}${d.deduce?' Se descuentan las reservas '+esc(d.deduce.replace(/,/g,', '))+'.':''}</div>`):''}
+    ${!borr&&cobrable(d)?`<div class="${pag?'rc-ok':'rc-warn'} no-print cobro-bar">
+      ${pag?`<span>✓ ${ant?'Reserva cobrada':'Cobrada'} el ${fdate(d.fechaPago)}</span>
+        <button class="btn sm ghost" data-act="doc-cobro" data-v="Pendiente de pago">Marcar como pendiente</button>`
+      :`<span>${ant?'Reserva pendiente de cobro':'Pendiente de cobro'}</span>
+        <label class="cobro-fecha">Cobrada el <input type="date" id="cobroFecha" value="${esc(DATA.hoy)}" max="${esc(DATA.hoy)}"></label>
+        <button class="btn sm emit" data-act="doc-cobro" data-v="Pagado">✓ Marcar como cobrada</button>`}</div>`:''}
     ${rect?`<div class="rc-warn no-print">Anulada con la factura rectificativa ${esc(rect.numero)} · motivo: ${esc(rect.motivo)}</div>`:''}
     <div class="doc-paper" id="docPaper">${docHtml(d)}</div>
     <div class="rc-actions no-print">${borr?`
-      <button class="btn emit" data-act="doc-emit" ${faltan.length?'disabled':''}>${d.tipo==='Factura'?(ant?'🔖 Emitir anticipo ':'🧾 Emitir factura ')+esc(DATA.siguienteFactura||''):'📄 Emitir proforma'}</button>
-      <button class="btn ghost" data-act="recibo-edit">Editar datos</button>
-      <button class="btn ghost" data-act="close-recibo">Cerrar</button>`:`
+      <button class="btn emit" data-act="doc-emit" ${faltan.length?'disabled':''}>${emitTxt}</button>
+      <button class="btn ghost" data-act="fe-back">← Volver a editar</button>
+      <button class="btn ghost" data-act="close-recibo">Cancelar</button>`:`
       <button class="btn emit" data-act="doc-pdf">⬇ PDF</button>
       <a class="btn wa" href="${esc(wa)}" target="_blank" rel="noopener" title="${tel?'Enviar a +'+esc(tel):'Elige el contacto en WhatsApp'}">WhatsApp</a>
       <a class="btn mail" href="${esc(mail)}" target="_blank" rel="noopener" title="${emailCli?'Enviar a '+esc(emailCli):'Elige el destinatario en tu app de correo'}">✉ Email</a>
       <button class="btn ghost" data-act="recibo-print">Imprimir</button>
       <button class="btn ghost" data-act="recibo-copy">Copiar texto</button>
-      ${admin&&d.tipo==='Factura'&&d.estado==='Emitida'?'<button class="btn danger" data-act="doc-anular">Anular (rectificativa)</button>':'<button class="btn ghost" data-act="recibo-edit">Abrir ficha</button>'}`}
+      ${l?'<button class="btn ghost" data-act="recibo-edit">Abrir ficha</button>':''}
+      ${admin&&d.tipo==='Factura'&&d.estado==='Emitida'?`<button class="btn ghost" data-act="doc-corregir">✎ Corregir</button>
+        <button class="btn danger" data-act="doc-anular">Anular (rectificativa)</button>`:''}`}
     </div>`;
   showOv('ovRecibo');fitDoc();$('reciboBox').scrollTop=0;
 }
@@ -732,9 +704,234 @@ function fitDoc(){const p=$('docPaper');if(!p)return;const fx=p.querySelector('.
   fx.style.zoom=Math.min(1,(p.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight))/794)}
 addEventListener('resize',()=>{if($('ovRecibo').classList.contains('open'))fitDoc()});
 function closeRecibo(){reciboId=null;docCur=null;hideOv('ovRecibo')}
-/** Abre la factura vigente del lead o, si aún no tiene, la vista previa para emitirla. */
+/** Tarjeta de un lead facturado: abre su factura vigente o, si aún no tiene, una factura nueva para él. */
 function openRecibo(id){const l=lead(id);if(!l)return;const f=activa(l);
-  if(f)openDoc({numero:f.numero});else if(l.etapa==='Facturado')openDoc({leadId:id,tipo:'Factura'});else openLead(id)}
+  if(f)openDoc({numero:f.numero});else openFacEd({leadId:id,tipo:'Factura'})}
+
+// ───── editor de facturas: eliges el cliente → se rellena solo → vista previa → emitir ─────
+let facEd=null;
+const clienteDeLead=l=>({nombre:l.factNombre||l.nombre||'',nif:String(l.factNif||'').toUpperCase(),direccion:l.factDireccion||'',cp:l.factCP||'',
+  poblacion:l.factPoblacion||'',provincia:l.factProvincia||'',email:l.factEmail||l.email||''});
+const lineasEditables=ls=>ls.map(x=>({c:x.c||'',q:String(x.q||'1'),p:x.p!==''&&x.p!=null?toNum(x.p).toLocaleString('es-ES',{minimumFractionDigits:2}):''}));
+const lineasPedido=l=>{const ls=lineasEditables(lineasDe(l));return ls.length?ls:[{c:l.uso?`CISTERNA FLEXIBLE ${l.uso.toUpperCase()}${l.capacidad?' '+l.capacidad:''}`:'',q:'1',p:''}]};
+/** Cliente de una factura emitida: "dirección\nCP Población, Provincia" → campos. */
+function clienteDeFactura(f,l){const ls=String(f.clienteDireccion||'').split('\n'),last=ls.length>1?ls.pop():'',m=last.match(/^(\S+)\s+([^,]+?)(?:,\s*(.+))?$/);
+  const base=l?clienteDeLead(l):{};
+  return {nombre:f.clienteNombre,nif:f.clienteNif,direccion:m?ls.join('\n'):String(f.clienteDireccion||''),cp:m?m[1]:base.cp||'',poblacion:m?m[2]:base.poblacion||'',
+    provincia:m?(m[3]||m[2]):base.provincia||'',email:base.email||''}}
+
+/** o = {leadId?, tipo?} para una factura nueva · {corrige: nº} para corregir una emitida. */
+function openFacEd(o){
+  o=o||{};
+  if(o.corrige){
+    const f=(DATA.facturas||[]).find(x=>x.numero===o.corrige);if(!f)return;const l=lead(f.leadId)||{},d=docFrom(f),ant=f.subtipo==='Anticipo';
+    const [iban]=String(f.cuenta||'').split(/\s*[·|]\s*/),cta=(DATA.cuentas||[]).find(c=>c.iban===iban&&c.activa);
+    facEd={modo:'corregir',orig:f.numero,leadId:f.leadId,tipo:ant?'Anticipo':'Factura',cliente:clienteDeFactura(f,l),
+      lineas:ant?lineasPedido(l):lineasEditables(d.lineas.filter(x=>!/^Anticipo según factura/.test(x.c))),
+      notas:f.notas||'',ivaPct:String(toNum(f.ivaPct)),formaPago:f.formaPago||'',cuentaId:cta?cta.id:'',fechaOperacion:f.fechaOperacion||'',
+      reservaTotal:ant?toNum(f.total).toLocaleString('es-ES',{minimumFractionDigits:2}):'',deducir:String(f.deduce||'').split(',').filter(Boolean),
+      guardarCliente:false,motivo:'',q:''};
+  }else{
+    facEd={modo:'nuevo',orig:'',leadId:'',tipo:o.tipo||'Factura',cliente:{},lineas:[],notas:'',ivaPct:String(toNum((DATA.config||{}).ivaDefecto||21)),
+      formaPago:'Transferencia',cuentaId:'',fechaOperacion:'',reservaTotal:'',deducir:[],guardarCliente:false,motivo:'',q:''};
+    if(o.leadId)feElegir(o.leadId,true);
+  }
+  renderFacEd();showOv('ovFactura');$('facBox').scrollTop=0;
+  if(!facEd.leadId)setTimeout(()=>$('feQ')&&$('feQ').focus(),60);
+}
+/** Al elegir el cliente se rellena todo con lo que ya está guardado en su ficha. */
+function feElegir(id,sinRender){const l=lead(id);if(!l)return;const e=facEd;
+  Object.assign(e,{leadId:id,cliente:clienteDeLead(l),lineas:lineasPedido(l),notas:l.factNotas||'',ivaPct:ivaDe(l),
+    formaPago:l.factFormaPago||'Transferencia',cuentaId:'',reservaTotal:l.reservaImporte?toNum(l.reservaImporte).toLocaleString('es-ES',{minimumFractionDigits:2}):'',
+    deducir:anticiposPendientes(id).map(a=>a.numero),q:''});
+  if(!sinRender)renderFacEd()}
+function closeFacEd(){facEd=null;hideOv('ovFactura')}
+function renderFacEd(){
+  const e=facEd,l=e.leadId?lead(e.leadId):null,corr=e.modo==='corregir',c=e.cliente||{};
+  const tipos=[['Factura','🧾 Factura'],['Anticipo','🔖 Reserva'],['Proforma','📄 Proforma']];
+  const ants=l&&e.tipo==='Factura'?anticiposPendientes(e.leadId,corr?e.orig:''):[];
+  const act=cuentasAct(),pred=cuentaPred();
+  const fld=(id,lab,val,extra='',cls='')=>`<div class="field ${cls}"><label for="${id}">${lab}</label><input id="${id}" value="${esc(val||'')}" ${extra}></div>`;
+  let h=`<div class="doc-bar"><h3>${corr?'Corregir factura '+esc(e.orig):'Nueva factura'}</h3>
+    <button class="icon-btn" data-act="fac-close" aria-label="Cerrar" style="background:var(--card-2)">✕</button></div>`;
+  if(corr)h+=`<div class="rc-warn">Una factura emitida no se puede modificar. Al guardar, la app emite una <b>rectificativa</b> que anula la ${esc(e.orig)} y una <b>factura nueva</b> con estos datos. El cobro se conserva y todo queda registrado con el motivo.</div>`;
+  h+=`<div class="fe-sec"><h4>1 · Cliente</h4>`+(l?`<div class="fe-cli"><div class="avatar">${esc(ini(l.nombre))}</div><div><b>${esc(l.nombre)}</b>
+      <small>${esc([l.telefono,l.email,l.etapa].filter(Boolean).join(' · '))}</small></div>${corr?'':'<button type="button" class="btn ghost sm" data-act="fe-cambiar">Cambiar</button>'}</div>`
+    :`<input class="search" id="feQ" placeholder="Busca por nombre, teléfono, email o NIF…" value="${esc(e.q)}" autocomplete="off" aria-label="Buscar cliente"><div class="fe-res" id="feRes"></div>`)+`</div>`;
+  if(l){
+    h+=`<div class="fe-sec"><h4>2 · Documento</h4>`+(corr?`<p><b>${e.tipo==='Anticipo'?'Factura de anticipo (reserva)':'Factura'}</b></p>`
+      :`<div class="seg fe-tipo">${tipos.map(([v,t])=>`<button type="button" class="${e.tipo===v?'on':''}" data-act="fe-tipo" data-v="${v}">${t}</button>`).join('')}</div>`)+`</div>`;
+    h+=`<div class="fe-sec"><h4>3 · Datos fiscales del cliente</h4><div class="fact-grid">
+      ${fld('feNombre','Nombre o razón social *',c.nombre,'maxlength="150"','span2')}
+      <div class="field"><label for="feNif">NIF / CIF${e.tipo==='Proforma'?'':' *'}</label><input id="feNif" value="${esc(c.nif)}" maxlength="20" autocapitalize="characters"><small class="muted-s" id="feNifOk"></small></div>
+      ${fld('feDir','Dirección'+(e.tipo==='Proforma'?'':' *'),c.direccion,'maxlength="200"','span2')}
+      ${fld('feCP','Código postal'+(e.tipo==='Proforma'?'':' *'),c.cp,'maxlength="10" inputmode="numeric"')}
+      ${fld('fePob','Población'+(e.tipo==='Proforma'?'':' *'),c.poblacion,'maxlength="80"')}
+      ${fld('feProv','Provincia',c.provincia,'maxlength="80"')}
+      ${fld('feEmail','Email',c.email,'type="email" maxlength="120"')}
+      </div><label class="fe-check"><input type="checkbox" id="feGuardar" ${e.guardarCliente?'checked':''}> Guardar estos datos también en la ficha del cliente</label></div>`;
+    h+=`<div class="fe-sec"><h4>4 · ${e.tipo==='Anticipo'?'Pedido <span class="muted-s">· para indicar su importe total</span>':'Líneas'} <span class="muted-s">· precios sin IVA</span></h4>
+      <div class="lines-ed" id="feLines"></div><button type="button" class="btn ghost sm" data-act="fe-line-add">+ Añadir línea</button>
+      ${e.tipo==='Anticipo'?`<div class="field" style="margin-top:12px;max-width:260px"><label for="feReserva">Importe de la reserva (IVA incluido) *</label><input id="feReserva" value="${esc(e.reservaTotal)}" inputmode="decimal" maxlength="14" placeholder="Ej. 300,00"></div>`:''}
+      ${ants.length?`<div class="fe-ants"><b>Reservas a descontar en esta factura</b>${ants.map(a=>`<label class="fe-check"><input type="checkbox" data-ant="${esc(a.numero)}" ${e.deducir.includes(a.numero)?'checked':''}>
+        Reserva ${esc(a.numero)} · ${fdate(a.fecha)} · ${eur(toNum(a.total))} ${cobroTag(a)}</label>`).join('')}</div>`:''}</div>`;
+    h+=`<div class="fe-sec"><h4>5 · Cobro</h4><div class="fact-grid">
+      <div class="field"><label for="feIva">IVA</label><select id="feIva">${TIPOS_IVA.map(v=>`<option value="${v}" ${String(e.ivaPct)===v?'selected':''}>${v} %</option>`).join('')}</select></div>
+      <div class="field"><label for="feForma">Forma de pago</label><select id="feForma"><option value="">—</option>${FORMAS_PAGO.map(f=>`<option value="${f}" ${f===e.formaPago?'selected':''}>${FORMA_TXT[f]||f}</option>`).join('')}</select></div>
+      <div class="field" id="feCuentaBox" ${e.formaPago==='Transferencia'?'':'hidden'}><label for="feCuenta">Cuenta</label>${act.length?`<select id="feCuenta">${act.map(x=>`<option value="${esc(x.id)}" ${(e.cuentaId||(pred||{}).id)===x.id?'selected':''}>${esc(x.iban)}${x.banco?' · '+esc(x.banco):''}${x.predeterminada?' (predeterminada)':''}</option>`).join('')}</select>`
+        :`<p class="muted-s">No hay ninguna cuenta. <button type="button" class="linkish" data-act="fe-ir-config">Añádela en Configuración</button></p>`}</div>
+      ${e.tipo!=='Anticipo'?fld('feNotas','Observaciones <span class="muted-s" style="font-weight:500">· salen bajo las líneas</span>',e.notas,'maxlength="300" placeholder="Ej. Transporte incluido"','span2'):''}
+      ${fld('feFechaOp','Fecha de la operación <span class="muted-s" style="font-weight:500">· solo si es distinta</span>',e.fechaOperacion,'type="date"')}
+      </div></div>`;
+    if(corr)h+=`<div class="fe-sec"><h4>Motivo de la corrección *</h4><input class="search" id="feMotivo" value="${esc(e.motivo)}" maxlength="300" placeholder="Ej. El NIF del cliente estaba mal escrito"></div>`;
+    h+=`<div class="fact-total"><span id="feDesglose"></span><b id="feTotal"></b></div>
+      <div class="rc-actions fe-actions"><button type="button" class="btn ghost" data-act="fac-close">Cancelar</button><button type="button" class="btn emit" data-act="fe-preview">Vista previa →</button></div>`;
+  }
+  $('facBox').innerHTML=h;
+  if(l){renderFeLines();feNif();feRecalc()}else feSearch();
+}
+function renderFeLines(){const e=facEd;
+  $('feLines').innerHTML=`<div class="ln ln-head"><span>Concepto</span><span>Cant.</span><span>Precio</span><span class="lt">Total</span><span></span></div>`+
+    e.lineas.map((x,i)=>`<div class="ln"><input data-fi="${i}" data-k="c" value="${esc(x.c)}" maxlength="200" placeholder="Ej. CISTERNA FLEXIBLE AGUA 5 m³" aria-label="Concepto de la línea ${i+1}">
+      <input data-fi="${i}" data-k="q" value="${esc(x.q)}" inputmode="decimal" maxlength="8" placeholder="Cant." aria-label="Cantidad">
+      <input data-fi="${i}" data-k="p" value="${esc(x.p)}" inputmode="decimal" maxlength="14" placeholder="Precio 0,00" aria-label="Precio sin IVA">
+      <span class="lt" id="flt${i}"></span>
+      ${e.lineas.length<2?'<span></span>':`<button type="button" class="mini" data-act="fe-line-del" data-i="${i}" title="Quitar línea" aria-label="Quitar línea ${i+1}">✕</button>`}</div>`).join('')}
+function feSearch(){const e=facEd,s=String(e.q||'').trim().toLowerCase();
+  const ls=DATA.leads.filter(l=>!s||[l.nombre,l.factNombre,l.telefono,l.email,l.factNif].join(' ').toLowerCase().includes(s))
+    .sort((a,b)=>String(b.actualizado).localeCompare(String(a.actualizado))).slice(0,8);
+  $('feRes').innerHTML=ls.map(l=>`<button type="button" class="fe-opt" data-act="fe-cli" data-id="${esc(l.id)}"><b>${esc(l.factNombre||l.nombre)}</b>
+    <small>${esc([l.factNombre&&l.factNombre!==l.nombre?l.nombre:'',l.telefono,l.factNif,l.etapa].filter(Boolean).join(' · '))}</small></button>`).join('')
+    ||'<p class="muted-s" style="padding:8px 4px">Ningún cliente coincide. Crea primero el lead con “Nuevo lead”.</p>'}
+function feNif(){const v=String(facEd.cliente.nif||'').trim();if($('feNifOk'))$('feNifOk').textContent=v?(validNif(v)?'✓ NIF válido':'⚠ Revisa el NIF: la letra o el dígito de control no cuadran'):''}
+function feRecalc(){if(!$('feTotal'))return;const d=feDoc();
+  facEd.lineas.forEach((x,i)=>{const t=Math.round(toNum(x.q||1)*Math.round(toNum(x.p)*100))/100;if($('flt'+i))$('flt'+i).textContent=x.p?eur(t):''});
+  $('feDesglose').textContent=d.base?`Subtotal ${eur(d.base)} + IVA ${d.ivaPct} % (${eur(d.cuota)})${d.deduce?' · descontadas las reservas':''}`:'Escribe el precio para calcular el total';
+  $('feTotal').textContent=d.base?eur(d.total):'—'}
+/** Documento en borrador con lo que hay en el editor (mismo cálculo que hará el servidor al emitirlo). */
+function feDoc(){const e=facEd,cfg=DATA.config||{},iva=String(e.ivaPct),c=e.cliente||{};
+  const lin=e.lineas.filter(x=>String(x.c).trim()||String(x.p).trim()).map(x=>({c:String(x.c).trim(),q:String(x.q).trim()||'1',p:String(x.p).trim()}));
+  const t=calc(lin,iva);
+  const d={numero:'',tipo:e.tipo==='Proforma'?'Proforma':'Factura',subtipo:e.tipo==='Anticipo'?'Anticipo':'',fecha:DATA.hoy,
+    fechaOperacion:e.fechaOperacion&&e.fechaOperacion!==DATA.hoy?e.fechaOperacion:'',leadId:e.leadId,estado:'Borrador',rectificaA:'',motivo:'',
+    emisorNombre:cfg.empresaNombre||'',emisorNif:cfg.empresaNif||'',emisorEmail:cfg.empresaEmail||'',
+    emisorDireccion:[cfg.empresaDireccion,locTxt(cfg.empresaCP,cfg.empresaPoblacion,cfg.empresaProvincia)].filter(Boolean).join('\n'),
+    clienteNombre:String(c.nombre||'').trim(),clienteNif:String(c.nif||'').toUpperCase().replace(/[\s.\-]/g,''),
+    clienteDireccion:[String(c.direccion||'').trim(),locTxt(c.cp,c.poblacion,c.provincia)].filter(Boolean).join('\n'),
+    lineas:t.lineas,notas:e.tipo==='Anticipo'?'':String(e.notas||'').trim(),base:t.base,ivaPct:iva,cuota:t.cuota,total:t.total,
+    formaPago:e.formaPago,cuenta:cuentaTexto(e.formaPago,e.cuentaId),condiciones:'',pedidoTotal:t.total,lineasPedido:lin.length,deduce:''};
+  if(e.tipo==='Anticipo'){const T=Math.round(toNum(e.reservaTotal)*100),b=Math.round(T*100/(100+toNum(iva))),base=(b/100).toFixed(2);
+    Object.assign(d,{condiciones:cfg.textoReserva||'',lineas:[{c:String(cfg.conceptoReserva||'').replace('{pedido}',fmtNum(t.base)),q:'1',p:base,t:base}],base:b/100,cuota:(T-b)/100,total:T/100})}
+  if(e.tipo==='Factura'&&e.deducir.length){const ants=(DATA.facturas||[]).filter(f=>e.deducir.includes(f.numero));
+    const r=calc(lin.concat(ants.map(a=>({c:`Anticipo según factura n.º ${a.numero} de ${fdate(a.fecha)}`,q:'1',p:'-'+a.base}))),iva);
+    // IVA del pedido completo menos el IVA ya cobrado en las reservas (igual que el servidor)
+    const cu=Math.round(t.cuota*100)-ants.reduce((s,a)=>s+Math.round(toNum(a.cuota)*100),0);
+    Object.assign(d,{lineas:r.lineas,base:r.base,cuota:cu/100,total:(Math.round(r.base*100)+cu)/100,deduce:ants.map(a=>a.numero).join(',')})}
+  return d}
+/** Lo que falta para poder emitir (mismas reglas que el servidor, para avisar antes). */
+function feFaltan(d){const cfg=DATA.config||{},f=[],e=facEd||{},fact=d.tipo!=='Proforma',ant=d.subtipo==='Anticipo',c=e.cliente||{};
+  if(!cfg.empresaNombre||!cfg.empresaNif||!cfg.empresaDireccion||!cfg.empresaCP||!cfg.empresaPoblacion)f.push('datos de la empresa (pestaña Configuración)');
+  if(!d.clienteNombre)f.push('nombre del cliente');
+  if(fact){if(!d.clienteNif)f.push('NIF/CIF del cliente');if(!String(c.direccion||'').trim()||!String(c.cp||'').trim()||!String(c.poblacion||'').trim())f.push('dirección, código postal y población del cliente')}
+  if(d.clienteNif&&!validNif(d.clienteNif))f.push('un NIF/CIF del cliente válido (revisa la letra)');
+  if(!d.lineasPedido)f.push(ant?'las líneas del pedido (para indicar su importe total)':'al menos una línea con concepto y precio');
+  else if(ant){if(!(d.total>0))f.push('el importe de la reserva (IVA incluido)');else if(d.total>d.pedidoTotal)f.push('una reserva que no supere el total del pedido')}
+  else if(!(d.base>0))f.push(d.deduce?'que las reservas no superen el importe de la factura':'un importe mayor que 0');
+  if(!TIPOS_IVA.includes(String(d.ivaPct)))f.push('un IVA de 21, 10 o 4 %');
+  if(d.formaPago==='Transferencia'&&!d.cuenta)f.push('una cuenta bancaria (pestaña Configuración)');
+  if(e.modo==='corregir'&&!String(e.motivo||'').trim())f.push('el motivo de la corrección');
+  return f}
+/** Lo que se envía al servidor (que vuelve a validar y calcular todo). */
+function fePayload(){const e=facEd,c=e.cliente;
+  return {tipo:e.tipo,leadId:e.leadId,cliente:{nombre:c.nombre,nif:c.nif,direccion:c.direccion,cp:c.cp,poblacion:c.poblacion,provincia:c.provincia,email:c.email},
+    lineas:e.lineas.filter(x=>String(x.c).trim()||String(x.p).trim()).map(x=>({c:String(x.c).trim(),q:String(x.q).trim()||'1',p:String(x.p).trim()})),
+    notas:e.notas,ivaPct:e.ivaPct,formaPago:e.formaPago,cuentaId:e.formaPago==='Transferencia'?(e.cuentaId||(cuentaPred()||{}).id||''):'',
+    fechaOperacion:e.fechaOperacion,reservaTotal:e.reservaTotal,deducir:e.tipo==='Factura'?e.deducir:[],guardarCliente:e.guardarCliente}}
+// Lo que se escribe en el editor va directo al estado (un solo oyente para toda la ventana)
+$('facBox').addEventListener('input',ev=>{const t=ev.target,e=facEd;if(!e)return;
+  const map={feNombre:'nombre',feNif:'nif',feDir:'direccion',feCP:'cp',fePob:'poblacion',feProv:'provincia',feEmail:'email'};
+  if(t.id==='feQ'){e.q=t.value;feSearch();return}
+  if(map[t.id]){e.cliente[map[t.id]]=t.value;if(t.id==='feNif')feNif()}
+  else if(t.dataset.fi!=null)e.lineas[+t.dataset.fi][t.dataset.k]=t.value;
+  else if(t.dataset.ant){const n=t.dataset.ant;e.deducir=t.checked?e.deducir.concat(n):e.deducir.filter(x=>x!==n)}
+  else if(t.id==='feGuardar')e.guardarCliente=t.checked;
+  else if(t.id==='feReserva')e.reservaTotal=t.value;
+  else if(t.id==='feIva')e.ivaPct=t.value;
+  else if(t.id==='feForma'){e.formaPago=t.value;$('feCuentaBox').hidden=t.value!=='Transferencia'}
+  else if(t.id==='feCuenta')e.cuentaId=t.value;
+  else if(t.id==='feNotas')e.notas=t.value;
+  else if(t.id==='feFechaOp')e.fechaOperacion=t.value;
+  else if(t.id==='feMotivo')e.motivo=t.value;
+  feRecalc()});
+$('facBox').addEventListener('change',ev=>{if(['feIva','feForma','feCuenta','feGuardar','feFechaOp'].includes(ev.target.id)||ev.target.dataset.ant)$('facBox').dispatchEvent(new Event('input'))});
+$('ovFactura').addEventListener('click',e=>{if(e.target.id==='ovFactura')closeFacEd()});
+
+// ───── pestaña Facturas: todas las facturas, filtros y totales de cobro ─────
+function facFiltradas(){const s=$('fQ').value.trim().toLowerCase(),tp=$('fTipo').value,cb=$('fCobro').value,de=$('fDesde').value,ha=$('fHasta').value;
+  return (DATA.facturas||[]).filter(f=>{const tipo=f.subtipo==='Anticipo'?'Anticipo':f.tipo;
+    if(tp&&tipo!==tp)return false;
+    if(cb&&!(cobrable(f)&&(f.estadoPago||'Pendiente de pago')===cb))return false;
+    if(de&&f.fecha<de)return false;if(ha&&f.fecha>ha)return false;
+    if(s){const l=lead(f.leadId);if(![f.numero,f.clienteNombre,f.clienteNif,l&&l.nombre,l&&l.telefono].join(' ').toLowerCase().includes(s))return false}
+    return true}).sort((a,b)=>String(b.emitida||b.fecha).localeCompare(String(a.emitida||a.fecha))||b.numero.localeCompare(a.numero))}
+function renderFacturas(){
+  const fs=DATA.facturas||[],pend=fs.filter(f=>cobrable(f)&&f.estadoPago!=='Pagado'),mes=String(DATA.hoy||'').slice(0,7),anio=String(DATA.hoy||'').slice(0,4);
+  const cobMes=fs.filter(f=>cobrable(f)&&f.estadoPago==='Pagado'&&String(f.fechaPago).slice(0,7)===mes);
+  const emAnio=fs.filter(f=>f.tipo==='Factura'&&String(f.fecha).slice(0,4)===anio);
+  const sum=ls=>ls.reduce((s,f)=>s+toNum(f.total),0);
+  $('facCards').innerHTML=[['Pendiente de cobro','--pay-pend',eur(sum(pend)),`${pend.length} ${pend.length===1?'factura':'facturas'} por cobrar`],
+    ['Cobrado este mes','--pay-ok',eur(sum(cobMes)),`${cobMes.length} ${cobMes.length===1?'cobro':'cobros'}`],
+    ['Facturado en '+anio,'--st-1',eur(sum(emAnio.filter(f=>f.estado==='Emitida'))),`${emAnio.length} facturas emitidas · próxima ${DATA.siguienteFactura||''}`]]
+    .map(([t,c,v,s])=>`<div class="scard" style="--sc:var(${c})"><div class="band">${t}</div><div class="body"><b class="fac-sum">${v}</b><small>${esc(s)}</small></div></div>`).join('');
+  const ls=facFiltradas();
+  $('facBody').innerHTML=ls.map(f=>`<tr class="fac-row ${f.estado==='Anulada'?'anulada':''}" data-act="doc-open" data-n="${esc(f.numero)}" tabindex="0">
+    <td><b>${esc(f.numero)}</b></td><td>${esc(docLabel(f))}${f.rectificaA?` <span class="muted-s">de ${esc(f.rectificaA)}</span>`:''}</td>
+    <td>${esc(f.clienteNombre)}</td><td>${fdate(f.fecha)}</td><td class="num">${eur(toNum(f.total))}</td><td>${cobroTag(f)}</td></tr>`).join('');
+  $('facEmpty').innerHTML=ls.length?'':`<p class="empty">${fs.length?'Ninguna factura coincide con los filtros.':'Aún no hay facturas. Pulsa “Nueva factura” para emitir la primera.'}</p>`;
+}
+['fQ','fTipo','fCobro','fDesde','fHasta'].forEach(id=>$(id).addEventListener('input',renderFacturas));
+$('facBody').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.n)openDoc({numero:e.target.dataset.n})});
+
+// ───── pestaña Configuración (todos): cambios hacia adelante, con motivo y registro ─────
+let cuentasEd=[],cfgDirty=false;
+function fillConfig(force){
+  const cfg=Object.assign({},DATA.config||{},{facturaSiguiente:DATA.siguienteFactura||(DATA.config||{}).facturaSiguiente});
+  if(!cfgDirty||force){
+    document.querySelectorAll('#cfgForm [data-k]').forEach(i=>{i.value=cfg[i.dataset.k]||''});
+    cuentasEd=(DATA.cuentas||[]).map(c=>Object.assign({},c));renderCuentasEd();$('cfgMotivo').value='';cfgDirty=false}
+  // Una vez emitida la primera factura del año desde la app, la numeración ya no se toca
+  const y=String(DATA.hoy||'').slice(0,4),hay=(DATA.facturas||[]).some(f=>f.tipo==='Factura'&&f.numero.startsWith(y));
+  $('cfgSig').readOnly=hay;$('cfgSigHint').textContent=hay?'Avanza sola, sin huecos: ya hay facturas de '+y+' emitidas desde la app.':'Año + 4 cifras. Solo se puede ajustar antes de emitir la primera factura del año.';
+  renderCfgHist()}
+function renderCuentasEd(){
+  $('cfgCuentas').innerHTML=cuentasEd.length?cuentasEd.map((c,i)=>`<div class="cta ${c.activa?'':'off'}">
+    <div class="field"><label>IBAN</label><input data-ci="${i}" data-ck="iban" value="${esc(c.iban)}" maxlength="42" placeholder="ES00 0000 0000 0000 0000 0000" autocapitalize="characters" aria-label="IBAN de la cuenta ${i+1}"></div>
+    <div class="field"><label>Banco</label><input data-ci="${i}" data-ck="banco" value="${esc(c.banco)}" maxlength="80" placeholder="Ej. Banco Sabadell" aria-label="Banco de la cuenta ${i+1}"></div>
+    <div class="field"><label>Titular</label><input data-ci="${i}" data-ck="titular" value="${esc(c.titular)}" maxlength="120" placeholder="A nombre de…" aria-label="Titular de la cuenta ${i+1}"></div>
+    <div class="cta-opts"><label class="fe-check"><input type="radio" name="ctaPred" data-ci="${i}" data-ck="predeterminada" ${c.predeterminada?'checked':''} ${c.activa?'':'disabled'}> Predeterminada</label>
+      <label class="fe-check"><input type="checkbox" data-ci="${i}" data-ck="activa" ${c.activa?'checked':''}> Activa</label>
+      ${c.id?'':`<button type="button" class="mini" data-act="cuenta-del" data-i="${i}">Quitar</button>`}</div></div>`).join('')
+    :'<p class="muted-s" style="margin-bottom:10px">Aún no hay ninguna cuenta. Añade la primera.</p>'}
+function renderCfgHist(){const h=DATA.configHistorial||[];
+  $('cfgHistCount').textContent=h.length?h.length+' cambios':'';
+  $('cfgHist').innerHTML=h.map(x=>`<tr><td>${esc(x.fecha)}</td><td>${esc(x.email)}</td><td><b>${esc(x.clave)}</b></td>
+    <td class="pre">${esc(x.antes)||'<span class="muted-s">(vacío)</span>'}</td><td class="pre">${esc(x.despues)||'<span class="muted-s">(vacío)</span>'}</td><td>${esc(x.motivo)}</td></tr>`).join('')
+    ||'<tr><td colspan="6" class="muted-s">Todavía no hay cambios registrados.</td></tr>'}
+$('cfgForm').addEventListener('input',e=>{const t=e.target;if(t.id!=='cfgMotivo')cfgDirty=true;
+  if(t.dataset.ci==null)return;const c=cuentasEd[+t.dataset.ci],k=t.dataset.ck;
+  if(k==='predeterminada'){cuentasEd.forEach(x=>x.predeterminada=false);c.predeterminada=true}
+  else if(k==='activa'){c.activa=t.checked;if(!c.activa)c.predeterminada=false;renderCuentasEd()}
+  else c[k]=t.value});
+$('cfgForm').addEventListener('change',e=>{if(e.target.dataset.ci!=null&&e.target.type!=='text')$('cfgForm').dispatchEvent(new Event('input'))});
+$('cfgForm').addEventListener('submit',async e=>{
+  e.preventDefault();const data={},motivo=$('cfgMotivo').value.trim();
+  document.querySelectorAll('#cfgForm [data-k]').forEach(i=>data[i.dataset.k]=i.value.trim());
+  data.cuentasJson=cuentasEd.map(c=>({id:c.id||'',iban:c.iban,banco:c.banco,titular:c.titular,activa:c.activa!==false,predeterminada:!!c.predeterminada}));
+  if(!motivo){toast('Escribe el motivo del cambio: queda en el historial',true);$('cfgMotivo').focus();return}
+  $('cfgBtn').setAttribute('aria-busy','true');
+  try{const d=await api('saveConfig',data,motivo);cfgDirty=false;setData(d);fillConfig(true);toast('Configuración guardada · las facturas nuevas usarán estos datos')}
+  catch(err){}finally{$('cfgBtn').removeAttribute('aria-busy')}
+});
 async function copyText(txt){
   try{await navigator.clipboard.writeText(txt);return true}catch(e){}
   // Respaldo para navegadores que no permiten el portapapeles dentro de Apps Script
@@ -804,22 +1001,46 @@ const ACTIONS={
   async 'recibo-copy'(){if(!docCur)return;toast(await copyText(docTexto(docCur.d))?'Texto copiado: pégalo donde quieras':'No se pudo copiar automáticamente',!1)},
   'recibo-print'(){document.body.classList.add('print-recibo');window.print();setTimeout(()=>document.body.classList.remove('print-recibo'),500)},
   'doc-open'(el){if($('ovLead').classList.contains('open'))closeLead();openDoc({numero:el.dataset.n})},
-  // Guarda la ficha y abre la vista previa del documento (factura o proforma)
-  'doc-prev'(el){const tipo=el.dataset.tipo;saveLead($('saveBtn'),id=>openDoc({leadId:id,tipo}))},
-  async 'doc-emit'(el){if(!docCur)return;const {d,leadId}=docCur,ant=d.subtipo==='Anticipo';
-    const msg=d.tipo==='Factura'?`¿Emitir la FACTURA${ant?' DE ANTICIPO (reserva)':''} n.º ${DATA.siguienteFactura} a ${d.clienteNombre} por ${eur(d.total)}?\n\nUna vez emitida no se puede borrar ni modificar. Si hubiera un error, habrá que anularla con una factura rectificativa.${ant?'\n\nSe descontará sola en la factura final.':''}`
+  // Editor de facturas
+  'fac-new'(){openFacEd({})},
+  'fac-close'(){closeFacEd()},
+  // Desde la ficha: guarda los cambios del lead y abre el editor con ese cliente ya elegido
+  'fac-from-lead'(el){const tipo=el.dataset.tipo;saveLead($('saveBtn'),id=>openFacEd({leadId:id,tipo}))},
+  'fe-cli'(el){feElegir(el.dataset.id)},
+  'fe-cambiar'(){facEd.leadId='';facEd.q='';renderFacEd();setTimeout(()=>$('feQ').focus(),30)},
+  'fe-tipo'(el){facEd.tipo=el.dataset.v;if(facEd.tipo==='Factura')facEd.deducir=anticiposPendientes(facEd.leadId).map(a=>a.numero);renderFacEd()},
+  'fe-line-add'(){if(facEd.lineas.length>=15){toast('Máximo 15 líneas',true);return}facEd.lineas.push({c:'',q:'1',p:''});renderFeLines();feRecalc();
+    const ins=$('feLines').querySelectorAll('input[data-k="c"]');ins[ins.length-1].focus()},
+  'fe-line-del'(el){facEd.lineas.splice(+el.dataset.i,1);renderFeLines();feRecalc()},
+  'fe-ir-config'(){closeFacEd();ACTIONS.nav(document.querySelector('.nav[data-view=config]'))},
+  'fe-preview'(){const d=feDoc();hideOv('ovFactura');openDoc({draft:d})},
+  'fe-back'(){closeRecibo();if(facEd){renderFacEd();showOv('ovFactura')}},
+  async 'doc-emit'(el){if(!docCur||!facEd)return;const {d}=docCur,ant=d.subtipo==='Anticipo',corr=facEd.modo==='corregir';
+    const msg=corr?`¿Corregir la factura ${facEd.orig}?\n\nSe emitirá una rectificativa que la anula y la factura nueva n.º ${DATA.siguienteFactura} por ${eur(d.total)}.\n\nMotivo: ${facEd.motivo}`
+      :d.tipo==='Factura'?`¿Emitir la FACTURA${ant?' DE RESERVA':''} n.º ${DATA.siguienteFactura} a ${d.clienteNombre} por ${eur(d.total)}?\n\nUna vez emitida no se puede borrar ni modificar: si hubiera un error se corrige con una rectificativa.`
       :`¿Emitir la factura proforma a ${d.clienteNombre} por ${eur(d.total)}?`;
     if(!confirm(msg))return;el.setAttribute('aria-busy','true');
-    try{const r=await api(ant?'emitirAnticipo':d.tipo==='Factura'?'emitirFactura':'emitirProforma',leadId);setData(r.data,leadId);openDoc({numero:r.numero});
-      toast((ant?'Factura de anticipo ':d.tipo==='Factura'?'Factura ':'Proforma ')+r.numero+' emitida')}catch(e){el.removeAttribute('aria-busy')}},
-  async 'reserva-pago'(el){el.setAttribute('aria-busy','true');const n=el.dataset.n;
-    try{setData(await api('setPagoReserva',n,el.dataset.v));openDoc({numero:n});toast(el.dataset.v==='Pagado'?'Reserva cobrada 💶':'Reserva marcada como pendiente')}catch(e){el.removeAttribute('aria-busy')}},
+    try{const r=corr?await api('corregirFactura',facEd.orig,fePayload(),facEd.motivo.trim()):await api('emitirDocumento',fePayload());
+      setData(r.data,facEd.leadId);facEd=null;openDoc({numero:r.numero});
+      toast(corr?`Factura corregida: ${r.numero} (rectificativa ${r.rectificativa})`:(ant?'Reserva ':d.tipo==='Factura'?'Factura ':'Proforma ')+r.numero+' emitida')}
+    catch(e){el.removeAttribute('aria-busy')}},
+  // Cobro de la factura que se está viendo (con la fecha elegida)
+  async 'doc-cobro'(el){if(!docCur)return;const n=docCur.d.numero,v=el.dataset.v,f=v==='Pagado'&&$('cobroFecha')?$('cobroFecha').value:'';
+    el.setAttribute('aria-busy','true');
+    try{setData(await api('setPagoFactura',n,v,f));openDoc({numero:n});toast(v==='Pagado'?'Cobro registrado 💶':'Marcada como pendiente de pago')}catch(e){el.removeAttribute('aria-busy')}},
+  'doc-corregir'(){if(!docCur)return;const n=docCur.d.numero;closeRecibo();openFacEd({corrige:n})},
   async 'doc-anular'(el){if(!docCur)return;const {d}=docCur;
-    const motivo=prompt(`Anular la factura ${d.numero}\n\nSe emitirá una FACTURA RECTIFICATIVA (serie R) por el total en negativo. La factura original se conserva marcada como anulada y el lead podrá facturarse de nuevo.\n\nMotivo de la rectificación:`);
-    if(motivo===null)return;if(!motivo.trim()){toast('Indica el motivo de la rectificación',true);return}
+    const motivo=prompt(`Anular la factura ${d.numero}\n\nSe emitirá una FACTURA RECTIFICATIVA (serie R) por el total en negativo. La factura original se conserva marcada como anulada.\n(Si solo hay que cambiar algún dato, usa mejor “Corregir”.)\n\nMotivo de la anulación:`);
+    if(motivo===null)return;if(!motivo.trim()){toast('Indica el motivo de la anulación',true);return}
     el.setAttribute('aria-busy','true');
     try{const r=await api('anularFactura',d.numero,motivo.trim());setData(r.data,d.leadId);openDoc({numero:r.numero});toast('Rectificativa '+r.numero+' emitida')}
     catch(e){el.removeAttribute('aria-busy')}},
+  // Configuración: cuentas bancarias
+  'cuenta-add'(){if(cuentasEd.length>=8){toast('Máximo 8 cuentas',true);return}
+    cuentasEd.push({id:'',iban:'',banco:'',titular:'',activa:true,predeterminada:!cuentasEd.some(c=>c.activa&&c.predeterminada)});cfgDirty=true;renderCuentasEd();
+    const ins=$('cfgCuentas').querySelectorAll('input[data-ck="iban"]');ins[ins.length-1].focus()},
+  'cuenta-del'(el){cuentasEd.splice(+el.dataset.i,1);renderCuentasEd()},
+  'cfg-reset'(){cfgDirty=false;fillConfig(true);toast('Cambios descartados')},
   // PDF: en el celular se abre el menú de compartir (WhatsApp, correo…) con el PDF adjunto; si no se puede, se descarga
   async 'doc-pdf'(el){if(!docCur)return;el.setAttribute('aria-busy','true');
     try{const d=docCur.d,blob=await docPdf(d),name=pdfName(d);
@@ -905,19 +1126,8 @@ document.addEventListener('click',e=>{
 $('ovLead').addEventListener('click',e=>{if(e.target.id==='ovLead')closeLead()});
 $('ovCita').addEventListener('click',e=>{if(e.target.id==='ovCita')closeCita()});
 $('ovRecibo').addEventListener('click',e=>{if(e.target.id==='ovRecibo')closeRecibo()});
-// Datos de la empresa (solo admin; el servidor lo vuelve a comprobar)
-function fillConfig(){const cfg=Object.assign({},DATA.config||{},{facturaSiguiente:DATA.siguienteFactura||(DATA.config||{}).facturaSiguiente});
-  document.querySelectorAll('#cfgForm [data-k]').forEach(i=>{if(document.activeElement!==i)i.value=cfg[i.dataset.k]||''});
-  // Una vez emitida la primera factura del año desde la app, la numeración ya no se toca
-  const y=String(DATA.hoy||'').slice(0,4),hay=(DATA.facturas||[]).some(f=>f.tipo==='Factura'&&f.numero.startsWith(y));
-  $('cfgSig').readOnly=hay;$('cfgSigHint').textContent=hay?'Avanza sola, sin huecos: ya hay facturas de '+y+' emitidas desde la app.':'Año + 4 cifras. Solo se puede ajustar antes de emitir la primera factura del año desde la app.'}
-$('cfgForm').addEventListener('submit',async e=>{
-  e.preventDefault();const data={};document.querySelectorAll('#cfgForm [data-k]').forEach(i=>data[i.dataset.k]=i.value.trim());
-  $('cfgBtn').setAttribute('aria-busy','true');
-  try{setData(await api('saveConfig',data));fillConfig();toast('Datos de la empresa guardados')}catch(err){}finally{$('cfgBtn').removeAttribute('aria-busy')}
-});
 document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
-  if($('ovRecibo').classList.contains('open'))closeRecibo();else if($('ovCita').classList.contains('open'))closeCita();else if($('ovLead').classList.contains('open'))closeLead();else if(isMobile()&&navOpen())setNav(false)});
+  if($('ovRecibo').classList.contains('open'))closeRecibo();else if($('ovFactura').classList.contains('open'))closeFacEd();else if($('ovCita').classList.contains('open'))closeCita();else if($('ovLead').classList.contains('open'))closeLead();else if(isMobile()&&navOpen())setNav(false)});
 $('q').addEventListener('input',e=>{q=e.target.value.trim().toLowerCase();renderTable();renderKanban();renderPagos()});
 
 // ───── administración (usuarios y registro) ─────
@@ -990,7 +1200,7 @@ function bindDrag(box,onDrop,get=lead){
 bindDrag($('kanbanReserva'),async(f,col)=>{
   const pago=col.dataset.pago;if((f.estadoPago||'Pendiente de pago')===pago)return;
   const prev=f.estadoPago;f.estadoPago=pago;renderReservas();
-  try{setData(await api('setPagoReserva',f.numero,pago));toast('Reserva '+f.numero+(pago==='Pagado'?' cobrada 💶':' pendiente'))}catch(err){f.estadoPago=prev;renderReservas()}
+  try{setData(await api('setPagoFactura',f.numero,pago));toast('Reserva '+f.numero+(pago==='Pagado'?' cobrada 💶':' pendiente'))}catch(err){f.estadoPago=prev;renderReservas()}
 },n=>(DATA.facturas||[]).find(f=>f.numero===n));
 // Flujo de trabajo: cambia la etapa
 bindDrag($('kanban'),async(l,col)=>{
@@ -1053,7 +1263,7 @@ function lock(msg,ok){
   clearTimeout(idleTimer);
   closeCita();closeLead();
   DATA={hoy:iso(T),leads:[],citas:[],historial:[],movimientos:[],config:{}};
-  hideOv('ovRecibo');$('reciboBox').innerHTML='';
+  hideOv('ovRecibo');$('reciboBox').innerHTML='';hideOv('ovFactura');$('facBox').innerHTML='';facEd=null;cfgDirty=false;
   $('q').value='';q='';filtro='todos';tfiltro='';
   renderAll();
   ['ficha','citaBox','usersBody','auditBody'].forEach(id=>$(id).innerHTML='');
