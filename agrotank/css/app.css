@@ -675,3 +675,41 @@ tr.row.vencido .spill .dot,.kpi[data-f=vencido] .num .dot{animation:pulse 1.8s i
   .fac-date .search{width:100%;padding:0 10px}
 }
 @media (max-width:760px){.cfg-grid .span2{grid-column:1/-1}}
+/* Reserva dentro de "Etapa y citas" de la ficha */
+.res-box{padding:12px 14px;border-radius:12px;background:var(--card);margin-bottom:12px;display:flex;flex-direction:column;gap:8px}
+.res-tit{font-size:13px;color:var(--muted);font-weight:600}
+.res-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px}
+.res-row .linkish{font-weight:700;color:var(--text)}
+.res-box.warn{background:var(--down-bg);color:var(--down);flex-direction:row;justify-content:space-between;align-items:center;flex-wrap:wrap;font-weight:700;font-size:14px}
+.fe-cobro button{background:var(--card)}
+
+/* ═════ Pantalla de carga al entrar ═════
+   Ciclo de 3 s que se repite hasta que llegan los datos:
+   - el logo rueda hacia la derecha como una rueda (avanza y gira en el sentido del reloj);
+   - al pasar deja 3 puntos blancos; cada punto crece al aparecer el siguiente, como mucho al doble;
+   - "Cargando" parpadea entre blanco y negro. */
+.boot{position:fixed;inset:0;z-index:200;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;opacity:1;transition:opacity .35s ease}
+.boot[hidden]{display:none!important}
+.boot.out{opacity:0}
+.boot-track{position:relative;width:280px;max-width:80vw;height:64px}
+.boot-wheel{position:absolute;left:0;top:4px;width:56px;height:56px;animation:bootRoll 3s linear infinite}
+.boot-spin{width:56px;height:56px;animation:bootSpin 3s linear infinite}
+.boot-spin svg{width:56px;height:56px;display:block;stroke:#fff}
+.boot-dot{position:absolute;top:28px;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;background:#fff}
+.boot-dot.d1{left:25%;animation:bootDot1 3s linear infinite}
+.boot-dot.d2{left:50%;animation:bootDot2 3s linear infinite}
+.boot-dot.d3{left:75%;animation:bootDot3 3s linear infinite}
+.boot-txt{font-family:'Plus Jakarta Sans',system-ui,sans-serif;font-size:15px;font-weight:700;letter-spacing:.32em;text-transform:uppercase;margin-right:-.32em;animation:bootBlink 1.2s ease-in-out infinite}
+/* La rueda recorre la pista entre 0 % y 82 % del ciclo; el giro va acorde a lo que avanza */
+@keyframes bootRoll{0%{transform:translateX(-28px);opacity:0}6%{opacity:1}82%{transform:translateX(calc(min(280px,80vw) - 28px));opacity:1}92%,100%{transform:translateX(calc(min(280px,80vw) - 10px));opacity:0}}
+@keyframes bootSpin{0%{transform:rotate(0deg)}82%{transform:rotate(540deg)}100%{transform:rotate(600deg)}}
+/* Puntos: aparecen al pasar la rueda (≈26 %, 46 %, 66 %) y crecen al aparecer el siguiente: 1× → 1,5× → 2× */
+@keyframes bootDot1{0%,25%{transform:scale(0);opacity:0}27%{transform:scale(1);opacity:1}45%{transform:scale(1)}48%{transform:scale(1.5)}65%{transform:scale(1.5)}68%{transform:scale(2)}88%{transform:scale(2);opacity:1}96%,100%{transform:scale(2);opacity:0}}
+@keyframes bootDot2{0%,45%{transform:scale(0);opacity:0}47%{transform:scale(1);opacity:1}65%{transform:scale(1)}68%{transform:scale(1.5)}82%{transform:scale(1.5)}85%{transform:scale(2)}88%{transform:scale(2);opacity:1}96%,100%{transform:scale(2);opacity:0}}
+@keyframes bootDot3{0%,65%{transform:scale(0);opacity:0}67%{transform:scale(1);opacity:1}82%{transform:scale(1)}85%{transform:scale(2)}88%{transform:scale(2);opacity:1}96%,100%{transform:scale(2);opacity:0}}
+@keyframes bootBlink{0%,100%{color:#fff}50%{color:#000}}
+.cobro-fecha{flex-wrap:wrap;min-width:0;max-width:100%}
+.cobro-fecha input{min-width:0;max-width:100%}
+.res-row>span{min-width:0}
+.fe-tipo,.fe-cobro{flex-wrap:wrap}
+.fe-tipo button,.fe-cobro button{min-width:0;flex:1 1 30%;padding:10px 6px}

@@ -19,6 +19,14 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" integrity="sha384-TnlRYaR4JYz/lpaGuaiU61PjNberSA4vjLjtF+oRC/IkohkJqnWxw5EmDSOt1vA1" crossorigin="anonymous"></script>
 </head>
 <body class="locked">
+<!-- Pantalla de carga al entrar: el logo rueda como una rueda dejando 3 puntos que crecen; "Cargando" parpadea -->
+<div class="boot" id="boot" hidden role="status" aria-live="polite">
+  <div class="boot-track" aria-hidden="true">
+    <span class="boot-dot d1"></span><span class="boot-dot d2"></span><span class="boot-dot d3"></span>
+    <div class="boot-wheel"><div class="boot-spin" id="bootLogo"></div></div>
+  </div>
+  <p class="boot-txt">Cargando</p>
+</div>
 <div class="loadbar"></div>
 
 <!-- ═════ LOGIN ═════ -->

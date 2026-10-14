@@ -144,7 +144,10 @@ const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
 const hm=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
 const toMin=h=>{const [a,b]=String(h||'').split(':').map(Number);return isNaN(a)?null:a*60+(b||0)};
 document.querySelectorAll('[data-ico]').forEach(e=>e.innerHTML=ICON[e.dataset.ico]);
-$('brandSide').innerHTML=$('brandLogin').innerHTML=ICON.logo;
+$('brandSide').innerHTML=$('brandLogin').innerHTML=$('bootLogo').innerHTML=ICON.logo;
+/** Pantalla de carga: se muestra al entrar y se va con un fundido cuando ya están los datos (o si falla). */
+function bootOn(){const b=$('boot');clearTimeout(b._t);b.classList.remove('out');b.hidden=false}
+function bootOff(){const b=$('boot');if(b.hidden)return;b.classList.add('out');clearTimeout(b._t);b._t=setTimeout(()=>{b.hidden=true;b.classList.remove('out')},380)}
 
 // Cada llamada al servidor lleva el ID token de Firebase (se renueva solo antes de caducar).
 // Servidor: Apps Script como API JSON. POST con text/plain para evitar la petición previa CORS.
@@ -548,6 +551,13 @@ function openLead(id,preset){
       <div class="field" id="payBox" ${l.etapa==='Facturado'?'':'hidden'}><label for="fPago">Estado de pago</label>
         <select id="fPago">${Object.keys(PAGOS).map(p=>`<option ${p===(l.estadoPago||'Pendiente de pago')?'selected':''}>${p}</option>`).join('')}</select>
         ${l.estadoPago==='Pagado'&&l.fechaPagado?`<small class="muted-s">Cobrado el ${fmt(pd(l.fechaPagado))} · ${esc(String(l.fechaPagado).slice(11,16))}</small>`:''}</div>
+      ${id?(()=>{const rs=reservasDe(id);
+        // Reserva: su cobro también se ve y se cambia aquí (pendiente de pago ↔ pagada)
+        if(rs.length)return `<div class="res-box"><span class="res-tit">Reserva</span>${rs.map(f=>{const ok=f.estadoPago==='Pagado';return `<div class="res-row">
+          <span><button type="button" class="linkish" data-act="doc-open" data-n="${esc(f.numero)}">${esc(f.numero)}</button> · <b>${eur(toNum(f.total))}</b> ${reservaTag(f)}${ok&&f.fechaPago?` <small class="muted-s">el ${fdate(f.fechaPago)}</small>`:''}</span>
+          <button type="button" class="btn sm ${ok?'ghost':'emit'}" data-act="res-pago" data-n="${esc(f.numero)}" data-v="${ok?'Pendiente de pago':'Pagado'}">${ok?'Marcar pendiente':'✓ Marcar pagada'}</button></div>`}).join('')}</div>`;
+        return base.etapa==='Reservado'?`<div class="res-box warn"><span>Aún no se ha emitido la factura de reserva.</span>
+          <button type="button" class="btn sm emit" data-act="fac-from-lead" data-tipo="Anticipo">🔖 Hacer la reserva</button></div>`:''})():''}
       <div class="lost-box" id="lostBox" ${l.etapa==='Perdido'?'':'hidden'}>
         <div class="field"><label for="fMotivo">¿Por qué no se ganó?</label><select id="fMotivo"><option value="">Elige un motivo…</option>${MOTIVOS.map(m=>`<option ${m===motSel?'selected':''}>${m}</option>`).join('')}</select></div>
         <div class="field" style="margin:0"><label for="fMotivoTxt">Detalle (opcional)</label><input id="fMotivoTxt" maxlength="200" value="${esc(motTxt)}" placeholder="Ej. le pareció caro frente a la competencia"></div>
@@ -675,7 +685,7 @@ function openDoc(o){
       <button class="icon-btn" data-act="close-recibo" aria-label="Cerrar" style="background:var(--card-2)">✕</button></div>
     ${borr?(faltan.length?`<div class="rc-warn no-print">⚠ Falta: ${esc(faltan.join('; '))}.</div>`
       :`<div class="rc-ok no-print">${corr?`Al guardar se emite la rectificativa que anula la ${esc(facEd.orig)} y esta factura nueva${d.tipo==='Factura'?` (será la <b>${esc(DATA.siguienteFactura||'')}</b>)`:''}. Queda registrado el motivo y qué cambió.`
-        :`Revisa los datos. Al pulsar “Emitir” recibe su número${d.tipo==='Factura'?` (será la <b>${esc(DATA.siguienteFactura||'')}</b>)`:''} y queda guardada sin cambios posibles.`}${d.deduce?' Se descuentan las reservas '+esc(d.deduce.replace(/,/g,', '))+'.':''}</div>`):''}
+        :`Revisa los datos. Al pulsar “Emitir” recibe su número${d.tipo==='Factura'?` (será la <b>${esc(DATA.siguienteFactura||'')}</b>)`:''} y queda guardada sin cambios posibles.${d.tipo==='Factura'&&facEd?(facEd.cobro==='Pagado'?` Quedará como <b>pagada el ${esc(fdate(facEd.cobroFecha||DATA.hoy))}</b>.`:' Quedará <b>pendiente de pago</b>.'):''}`}${d.deduce?' Se descuentan las reservas '+esc(d.deduce.replace(/,/g,', '))+'.':''}</div>`):''}
     ${!borr&&cobrable(d)?`<div class="${pag?'rc-ok':'rc-warn'} no-print cobro-bar">
       ${pag?`<span>✓ ${ant?'Reserva cobrada':'Cobrada'} el ${fdate(d.fechaPago)}</span>
         <button class="btn sm ghost" data-act="doc-cobro" data-v="Pendiente de pago">Marcar como pendiente</button>`
@@ -733,7 +743,9 @@ function openFacEd(o){
       guardarCliente:false,motivo:'',q:''};
   }else{
     facEd={modo:'nuevo',orig:'',leadId:'',tipo:o.tipo||'Factura',cliente:{},lineas:[],notas:'',ivaPct:String(toNum((DATA.config||{}).ivaDefecto||21)),
-      formaPago:'Transferencia',cuentaId:'',fechaOperacion:'',reservaTotal:'',deducir:[],guardarCliente:false,motivo:'',q:''};
+      formaPago:'Transferencia',cuentaId:'',fechaOperacion:'',reservaTotal:'',deducir:[],guardarCliente:false,motivo:'',q:'',
+      // La reserva normalmente se cobra en el momento; la factura final suele quedar pendiente
+      cobro:o.tipo==='Anticipo'?'Pagado':'Pendiente de pago',cobroFecha:DATA.hoy};
     if(o.leadId)feElegir(o.leadId,true);
   }
   renderFacEd();showOv('ovFactura');$('facBox').scrollTop=0;
@@ -742,7 +754,8 @@ function openFacEd(o){
 /** Al elegir el cliente se rellena todo con lo que ya está guardado en su ficha. */
 function feElegir(id,sinRender){const l=lead(id);if(!l)return;const e=facEd;
   Object.assign(e,{leadId:id,cliente:clienteDeLead(l),lineas:lineasPedido(l),notas:l.factNotas||'',ivaPct:ivaDe(l),
-    formaPago:l.factFormaPago||'Transferencia',cuentaId:'',reservaTotal:l.reservaImporte?toNum(l.reservaImporte).toLocaleString('es-ES',{minimumFractionDigits:2}):'',
+    formaPago:l.factFormaPago||'Transferencia',cuentaId:'',reservaTotal:'', // la reserva propone el 50 % del pedido
+    
     deducir:anticiposPendientes(id).map(a=>a.numero),q:''});
   if(!sinRender)renderFacEd()}
 function closeFacEd(){facEd=null;hideOv('ovFactura')}
@@ -751,6 +764,9 @@ function renderFacEd(){
   const tipos=[['Factura','🧾 Factura'],['Anticipo','🔖 Reserva'],['Proforma','📄 Proforma']];
   const ants=l&&e.tipo==='Factura'?anticiposPendientes(e.leadId,corr?e.orig:''):[];
   const act=cuentasAct(),pred=cuentaPred();
+  // Reserva: se propone el 50 % del pedido (IVA incluido) si aún no hay importe
+  const mitad=l&&e.tipo==='Anticipo'?Math.round(calc(e.lineas.filter(x=>String(x.p).trim()),e.ivaPct).total*50)/100:0;
+  if(l&&e.tipo==='Anticipo'&&!String(e.reservaTotal).trim()&&mitad>0)e.reservaTotal=mitad.toLocaleString('es-ES',{minimumFractionDigits:2});
   const fld=(id,lab,val,extra='',cls='')=>`<div class="field ${cls}"><label for="${id}">${lab}</label><input id="${id}" value="${esc(val||'')}" ${extra}></div>`;
   let h=`<div class="doc-bar"><h3>${corr?'Corregir factura '+esc(e.orig):'Nueva factura'}</h3>
     <button class="icon-btn" data-act="fac-close" aria-label="Cerrar" style="background:var(--card-2)">✕</button></div>`;
@@ -772,7 +788,8 @@ function renderFacEd(){
       </div><label class="fe-check"><input type="checkbox" id="feGuardar" ${e.guardarCliente?'checked':''}> Guardar estos datos también en la ficha del cliente</label></div>`;
     h+=`<div class="fe-sec"><h4>4 · ${e.tipo==='Anticipo'?'Pedido <span class="muted-s">· para indicar su importe total</span>':'Líneas'} <span class="muted-s">· precios sin IVA</span></h4>
       <div class="lines-ed" id="feLines"></div><button type="button" class="btn ghost sm" data-act="fe-line-add">+ Añadir línea</button>
-      ${e.tipo==='Anticipo'?`<div class="field" style="margin-top:12px;max-width:260px"><label for="feReserva">Importe de la reserva (IVA incluido) *</label><input id="feReserva" value="${esc(e.reservaTotal)}" inputmode="decimal" maxlength="14" placeholder="Ej. 300,00"></div>`:''}
+      ${e.tipo==='Anticipo'?`<div class="field" style="margin-top:12px;max-width:320px"><label for="feReserva">Importe de la reserva (IVA incluido) *</label><input id="feReserva" value="${esc(e.reservaTotal)}" inputmode="decimal" maxlength="14" placeholder="Ej. 300,00">
+        ${mitad>0?`<small class="muted-s">50 % del pedido: ${eur(mitad)} · <button type="button" class="linkish" data-act="fe-mitad" data-v="${mitad}">usar 50 %</button></small>`:''}</div>`:''}
       ${ants.length?`<div class="fe-ants"><b>Reservas a descontar en esta factura</b>${ants.map(a=>`<label class="fe-check"><input type="checkbox" data-ant="${esc(a.numero)}" ${e.deducir.includes(a.numero)?'checked':''}>
         Reserva ${esc(a.numero)} · ${fdate(a.fecha)} · ${eur(toNum(a.total))} ${cobroTag(a)}</label>`).join('')}</div>`:''}</div>`;
     h+=`<div class="fe-sec"><h4>5 · Cobro</h4><div class="fact-grid">
@@ -782,6 +799,10 @@ function renderFacEd(){
         :`<p class="muted-s">No hay ninguna cuenta. <button type="button" class="linkish" data-act="fe-ir-config">Añádela en Configuración</button></p>`}</div>
       ${e.tipo!=='Anticipo'?fld('feNotas','Observaciones <span class="muted-s" style="font-weight:500">· salen bajo las líneas</span>',e.notas,'maxlength="300" placeholder="Ej. Transporte incluido"','span2'):''}
       ${fld('feFechaOp','Fecha de la operación <span class="muted-s" style="font-weight:500">· solo si es distinta</span>',e.fechaOperacion,'type="date"')}
+      ${e.tipo!=='Proforma'&&!corr?`<div class="field span3"><label>Estado del cobro${e.tipo==='Anticipo'?' de la reserva':''}</label>
+        <div class="seg fe-cobro"><button type="button" class="${e.cobro==='Pagado'?'on':''}" data-act="fe-cobro" data-v="Pagado">✓ Pagada en el momento</button>
+          <button type="button" class="${e.cobro!=='Pagado'?'on':''}" data-act="fe-cobro" data-v="Pendiente de pago">Pendiente de pago</button></div>
+        ${e.cobro==='Pagado'?`<label class="cobro-fecha" style="margin-top:8px">Fecha del cobro <input type="date" id="feCobroFecha" value="${esc(e.cobroFecha)}" max="${esc(DATA.hoy)}"></label>`:''}</div>`:''}
       </div></div>`;
     if(corr)h+=`<div class="fe-sec"><h4>Motivo de la corrección *</h4><input class="search" id="feMotivo" value="${esc(e.motivo)}" maxlength="300" placeholder="Ej. El NIF del cliente estaba mal escrito"></div>`;
     h+=`<div class="fact-total"><span id="feDesglose"></span><b id="feTotal"></b></div>
@@ -840,13 +861,15 @@ function feFaltan(d){const cfg=DATA.config||{},f=[],e=facEd||{},fact=d.tipo!=='P
   if(!TIPOS_IVA.includes(String(d.ivaPct)))f.push('un IVA de 21, 10 o 4 %');
   if(d.formaPago==='Transferencia'&&!d.cuenta)f.push('una cuenta bancaria (pestaña Configuración)');
   if(e.modo==='corregir'&&!String(e.motivo||'').trim())f.push('el motivo de la corrección');
+  if(fact&&e.modo!=='corregir'&&e.cobro==='Pagado'&&(!e.cobroFecha||e.cobroFecha>DATA.hoy))f.push('una fecha de cobro válida (no futura)');
   return f}
 /** Lo que se envía al servidor (que vuelve a validar y calcular todo). */
 function fePayload(){const e=facEd,c=e.cliente;
   return {tipo:e.tipo,leadId:e.leadId,cliente:{nombre:c.nombre,nif:c.nif,direccion:c.direccion,cp:c.cp,poblacion:c.poblacion,provincia:c.provincia,email:c.email},
     lineas:e.lineas.filter(x=>String(x.c).trim()||String(x.p).trim()).map(x=>({c:String(x.c).trim(),q:String(x.q).trim()||'1',p:String(x.p).trim()})),
     notas:e.notas,ivaPct:e.ivaPct,formaPago:e.formaPago,cuentaId:e.formaPago==='Transferencia'?(e.cuentaId||(cuentaPred()||{}).id||''):'',
-    fechaOperacion:e.fechaOperacion,reservaTotal:e.reservaTotal,deducir:e.tipo==='Factura'?e.deducir:[],guardarCliente:e.guardarCliente}}
+    fechaOperacion:e.fechaOperacion,reservaTotal:e.reservaTotal,deducir:e.tipo==='Factura'?e.deducir:[],guardarCliente:e.guardarCliente,
+    cobro:e.cobro,cobroFecha:e.cobro==='Pagado'?(e.cobroFecha||DATA.hoy):''}}
 // Lo que se escribe en el editor va directo al estado (un solo oyente para toda la ventana)
 $('facBox').addEventListener('input',ev=>{const t=ev.target,e=facEd;if(!e)return;
   const map={feNombre:'nombre',feNif:'nif',feDir:'direccion',feCP:'cp',fePob:'poblacion',feProv:'provincia',feEmail:'email'};
@@ -862,6 +885,7 @@ $('facBox').addEventListener('input',ev=>{const t=ev.target,e=facEd;if(!e)return
   else if(t.id==='feNotas')e.notas=t.value;
   else if(t.id==='feFechaOp')e.fechaOperacion=t.value;
   else if(t.id==='feMotivo')e.motivo=t.value;
+  else if(t.id==='feCobroFecha')e.cobroFecha=t.value;
   feRecalc()});
 $('facBox').addEventListener('change',ev=>{if(['feIva','feForma','feCuenta','feGuardar','feFechaOp'].includes(ev.target.id)||ev.target.dataset.ant)$('facBox').dispatchEvent(new Event('input'))});
 $('ovFactura').addEventListener('click',e=>{if(e.target.id==='ovFactura')closeFacEd()});
@@ -1008,7 +1032,14 @@ const ACTIONS={
   'fac-from-lead'(el){const tipo=el.dataset.tipo;saveLead($('saveBtn'),id=>openFacEd({leadId:id,tipo}))},
   'fe-cli'(el){feElegir(el.dataset.id)},
   'fe-cambiar'(){facEd.leadId='';facEd.q='';renderFacEd();setTimeout(()=>$('feQ').focus(),30)},
-  'fe-tipo'(el){facEd.tipo=el.dataset.v;if(facEd.tipo==='Factura')facEd.deducir=anticiposPendientes(facEd.leadId).map(a=>a.numero);renderFacEd()},
+  'fe-tipo'(el){facEd.tipo=el.dataset.v;if(facEd.tipo==='Factura')facEd.deducir=anticiposPendientes(facEd.leadId).map(a=>a.numero);
+    facEd.cobro=facEd.tipo==='Anticipo'?'Pagado':'Pendiente de pago';renderFacEd()},
+  'fe-cobro'(el){facEd.cobro=el.dataset.v;if(!facEd.cobroFecha)facEd.cobroFecha=DATA.hoy;renderFacEd()},
+  'fe-mitad'(el){facEd.reservaTotal=(+el.dataset.v).toLocaleString('es-ES',{minimumFractionDigits:2});renderFacEd()},
+  // "Etapa y citas" de la ficha: cobrar (o volver a pendiente) la reserva sin salir de la ficha
+  async 'res-pago'(el){el.setAttribute('aria-busy','true');const v=el.dataset.v;
+    try{setData(await api('setPagoFactura',el.dataset.n,v,DATA.hoy),fichaId);refreshFicha();toast(v==='Pagado'?'Reserva cobrada 💶':'Reserva marcada como pendiente de pago')}
+    catch(e){el.removeAttribute('aria-busy')}},
   'fe-line-add'(){if(facEd.lineas.length>=15){toast('Máximo 15 líneas',true);return}facEd.lineas.push({c:'',q:'1',p:''});renderFeLines();feRecalc();
     const ins=$('feLines').querySelectorAll('input[data-k="c"]');ins[ins.length-1].focus()},
   'fe-line-del'(el){facEd.lineas.splice(+el.dataset.i,1);renderFeLines();feRecalc()},
@@ -1310,7 +1341,7 @@ $('loginForm').addEventListener('submit',async e=>{
   const email=$('lEmail').value.trim(),pass=$('lPass').value;
   if(!email||!pass){loginMsg('Escribe tu email y contraseña.');shakeLogin();return}
   setPassVisible(false);
-  $('lBtn').setAttribute('aria-busy','true');loginMsg('');
+  $('lBtn').setAttribute('aria-busy','true');loginMsg('');bootOn();
   try{
     await authReady;
     await auth.signInWithEmailAndPassword(email,pass);
@@ -1319,7 +1350,7 @@ $('loginForm').addEventListener('submit',async e=>{
   }catch(err){
     // Mensaje genérico: no revela si el email existe o si falló la contraseña.
     loginMsg(LOGIN_ERR[err&&err.code]||'Email o contraseña incorrectos.');shakeLogin();
-  }finally{$('lBtn').removeAttribute('aria-busy')}
+  }finally{$('lBtn').removeAttribute('aria-busy');bootOff()}
 });
 $('lReset').addEventListener('click',async()=>{
   const email=$('lEmail').value.trim();
